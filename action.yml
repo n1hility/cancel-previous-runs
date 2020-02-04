@@ -1,0 +1,10 @@
+name: 'Cancel Previous Runs'
+description: 'Cancels all previous runs of this workflow'
+author: 'n1hility'
+inputs:
+  token:
+    description: The GITHUB_TOKEN secret of this github workflow
+    required: true
+runs:
+  using: 'node12'
+  main: 'dist/index.js'
