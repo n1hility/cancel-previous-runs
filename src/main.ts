@@ -25,15 +25,18 @@ async function run(): Promise<void> {
     const listRuns = octokit.actions.listRepoWorkflowRuns.endpoint.merge({
       owner,
       repo,
-      branch,
+      // branch,
       event: 'push'
     })
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await octokit.paginate(listRuns).then(async (runs: any[]) => {
-      let matched = false
-      let workflow = ''
-      for (const element of runs) {
+    let matched = false
+    let workflow = ''
+    let count = 0
+    for await (const item of octokit.paginate.iterator(listRuns)) {
+      // There is some sort of bug where the pagination URLs point to a
+      // different URL with a different data format
+      const elements = ++count < 2 ? item.data : item.data.workflow_runs
+      for (const element of elements) {
         core.info(
           `${element.id} : ${element.workflow_url} : ${element.status} : ${element.run_number}`
         )
@@ -52,10 +55,10 @@ async function run(): Promise<void> {
           workflow === element.workflow_url &&
           element.status.toString() !== 'completed'
         ) {
-          await cancelRun(octokit, owner, repo, element.id)
+          Promise.resolve(cancelRun(octokit, owner, repo, element.id))
         }
       }
-    })
+    }
   } catch (error) {
     core.setFailed(error.message)
   }

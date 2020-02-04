@@ -1448,6 +1448,13 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
+var __asyncValues = (this && this.__asyncValues) || function (o) {
+    if (!Symbol.asyncIterator) throw new TypeError("Symbol.asyncIterator is not defined.");
+    var m = o[Symbol.asyncIterator], i;
+    return m ? m.call(o) : (o = typeof __values === "function" ? __values(o) : o[Symbol.iterator](), i = {}, verb("next"), verb("throw"), verb("return"), i[Symbol.asyncIterator] = function () { return this; }, i);
+    function verb(n) { i[n] = o[n] && function (v) { return new Promise(function (resolve, reject) { v = o[n](v), settle(resolve, reject, v.done, v.value); }); }; }
+    function settle(resolve, reject, d, v) { Promise.resolve(v).then(function(v) { resolve({ value: v, done: d }); }, reject); }
+};
 var __importStar = (this && this.__importStar) || function (mod) {
     if (mod && mod.__esModule) return mod;
     var result = {};
@@ -1459,6 +1466,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const github = __importStar(__webpack_require__(469));
 const core = __importStar(__webpack_require__(393));
 function run() {
+    var e_1, _a;
     return __awaiter(this, void 0, void 0, function* () {
         try {
             const token = core.getInput('token');
@@ -1477,30 +1485,43 @@ function run() {
             const listRuns = octokit.actions.listRepoWorkflowRuns.endpoint.merge({
                 owner,
                 repo,
-                branch,
+                // branch,
                 event: 'push'
             });
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            yield octokit.paginate(listRuns).then((runs) => __awaiter(this, void 0, void 0, function* () {
-                let matched = false;
-                let workflow = '';
-                for (const element of runs) {
-                    core.info(`${element.id} : ${element.workflow_url} : ${element.status} : ${element.run_number}`);
-                    if (!matched) {
-                        if (element.id.toString() === selfRunId) {
-                            matched = true;
-                            workflow = element.workflow_url;
+            let matched = false;
+            let workflow = '';
+            let count = 0;
+            try {
+                for (var _b = __asyncValues(octokit.paginate.iterator(listRuns)), _c; _c = yield _b.next(), !_c.done;) {
+                    const item = _c.value;
+                    // There is some sort of bug where the pagination URLs point to a
+                    // different URL with a different data format
+                    const elements = ++count < 2 ? item.data : item.data.workflow_runs;
+                    for (const element of elements) {
+                        core.info(`${element.id} : ${element.workflow_url} : ${element.status} : ${element.run_number}`);
+                        if (!matched) {
+                            if (element.id.toString() === selfRunId) {
+                                matched = true;
+                                workflow = element.workflow_url;
+                            }
+                            // Skip everything up to and matching this run
+                            continue;
                         }
-                        // Skip everything up to and matching this run
-                        continue;
-                    }
-                    // Only cancel jobs with the same workflow
-                    if (workflow === element.workflow_url &&
-                        element.status.toString() !== 'completed') {
-                        yield cancelRun(octokit, owner, repo, element.id);
+                        // Only cancel jobs with the same workflow
+                        if (workflow === element.workflow_url &&
+                            element.status.toString() !== 'completed') {
+                            Promise.resolve(cancelRun(octokit, owner, repo, element.id));
+                        }
                     }
                 }
-            }));
+            }
+            catch (e_1_1) { e_1 = { error: e_1_1 }; }
+            finally {
+                try {
+                    if (_c && !_c.done && (_a = _b.return)) yield _a.call(_b);
+                }
+                finally { if (e_1) throw e_1.error; }
+            }
         }
         catch (error) {
             core.setFailed(error.message);
