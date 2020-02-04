@@ -1,6 +1,6 @@
 # cancel-previous-runs 
 
-This action cancels all previous runs on the same branch, effectively limiting the resource consumption of the workflow using this action to one run per branch. 
+[**BETA**] This action cancels all previous runs on the same branch, effectively limiting the resource consumption of the workflow using this action to one run per branch. 
 
 <p><a href="https://github.com/actions/typescript-action/actions"><img alt="typescript-action status" src="https://github.com/actions/typescript-action/workflows/build-test/badge.svg"></a>
 
