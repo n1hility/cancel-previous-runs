@@ -1495,7 +1495,7 @@ function run() {
             const listRuns = octokit.actions.listRepoWorkflowRuns.endpoint.merge({
                 owner,
                 repo,
-                // branch,
+                branch,
                 event: 'push'
             });
             let matched = false;

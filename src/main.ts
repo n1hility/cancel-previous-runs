@@ -37,7 +37,7 @@ async function run(): Promise<void> {
     const listRuns = octokit.actions.listRepoWorkflowRuns.endpoint.merge({
       owner,
       repo,
-      // branch,
+      branch,
       event: 'push'
     })
 
