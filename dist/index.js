@@ -1472,14 +1472,24 @@ function run() {
             const token = core.getInput('token');
             const selfRunId = getRequiredEnv('GITHUB_RUN_ID');
             const repository = getRequiredEnv('GITHUB_REPOSITORY');
+            const eventName = getRequiredEnv('GITHUB_EVENT_NAME');
             const [owner, repo] = repository.split('/');
-            const refsPrefix = 'refs/heads/';
+            const branchPrefix = 'refs/heads/';
+            const tagPrefix = 'refs/tags/';
+            if (eventName !== 'push') {
+                core.info('Skipping non-push event');
+                return;
+            }
             let branch = getRequiredEnv('GITHUB_REF');
-            if (!branch.startsWith(refsPrefix)) {
+            if (!branch.startsWith(branchPrefix)) {
+                if (branch.startsWith(tagPrefix)) {
+                    core.info(`Skipping tag build`);
+                    return;
+                }
                 const message = `${branch} was not an expected branch ref (refs/heads/).`;
                 throw new Error(message);
             }
-            branch = branch.replace(refsPrefix, '');
+            branch = branch.replace(branchPrefix, '');
             core.info(`Branch is ${branch}, repo is ${repo}, and owner is ${owner}, and id is ${selfRunId}`);
             const octokit = new github.GitHub(token);
             const listRuns = octokit.actions.listRepoWorkflowRuns.endpoint.merge({
