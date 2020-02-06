@@ -1476,12 +1476,13 @@ function run() {
             const [owner, repo] = repository.split('/');
             const branchPrefix = 'refs/heads/';
             const tagPrefix = 'refs/tags/';
-            if (eventName !== 'push') {
-                core.info('Skipping non-push event');
+            if (!['push', 'pull_request'].includes(eventName)) {
+                core.info('Skipping unsupported event');
                 return;
             }
-            let branch = getRequiredEnv('GITHUB_REF');
-            if (!branch.startsWith(branchPrefix)) {
+            const pullRequest = 'pull_request' === eventName;
+            let branch = getRequiredEnv(pullRequest ? 'GITHUB_HEAD_REF' : 'GITHUB_REF');
+            if (!pullRequest && !branch.startsWith(branchPrefix)) {
                 if (branch.startsWith(tagPrefix)) {
                     core.info(`Skipping tag build`);
                     return;
@@ -1496,31 +1497,34 @@ function run() {
                 owner,
                 repo,
                 branch,
-                event: 'push'
+                event: pullRequest ? 'pull_request' : 'push'
             });
             let matched = false;
             let workflow = '';
-            let count = 0;
+            let headRepoName = '';
             try {
                 for (var _b = __asyncValues(octokit.paginate.iterator(listRuns)), _c; _c = yield _b.next(), !_c.done;) {
                     const item = _c.value;
                     // There is some sort of bug where the pagination URLs point to a
-                    // different URL with a different data format
-                    const elements = ++count < 2 ? item.data : item.data.workflow_runs;
+                    // different endpoint URL which trips up the resulting representation
+                    // In that case, fallback to the actual REST 'workflow_runs' property
+                    const elements = item.data.length === undefined ? item.data.workflow_runs : item.data;
                     for (const element of elements) {
                         core.info(`${element.id} : ${element.workflow_url} : ${element.status} : ${element.run_number}`);
                         if (!matched) {
                             if (element.id.toString() === selfRunId) {
                                 matched = true;
                                 workflow = element.workflow_url;
+                                headRepoName = pullRequest ? element.head_repository.full_name : '';
                             }
                             // Skip everything up to and matching this run
                             continue;
                         }
                         // Only cancel jobs with the same workflow
                         if (workflow === element.workflow_url &&
-                            element.status.toString() !== 'completed') {
-                            Promise.resolve(cancelRun(octokit, owner, repo, element.id));
+                            element.status.toString() !== 'completed' &&
+                            (!pullRequest || headRepoName === element.head_repository.full_name)) {
+                            yield cancelRun(octokit, owner, repo, element.id);
                         }
                     }
                 }
