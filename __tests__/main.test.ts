@@ -7,10 +7,17 @@ test('no op', () => {})
 // shows how the runner will run a javascript action with env / stdout protocol
 // test('test runs', () => {
 //   const ip = path.join(__dirname, '..', 'lib', 'main.js')
-//   process.env['INPUT_TOKEN'] = ''
-//   process.env['GITHUB_RUN_ID'] = '33782469'
-//   process.env['GITHUB_REPOSITORY'] = 'n1hility/cancel-previous-runs'
-//   process.env['GITHUB_REF'] = 'refs/heads/master'
+//     process.env['INPUT_TOKEN'] = ''
+//     process.env['GITHUB_RUN_ID'] = '35588693' //'33782469'
+//     process.env['GITHUB_REPOSITORY'] = ''
+//     process.env['GITHUB_HEAD_REF'] = 'refs/heads/n1hility-patch-5'
+//     process.env['GITHUB_EVENT_NAME'] = 'pull_request'
+
+// //   process.env['GITHUB_RUN_ID'] = '35599067'
+// //   process.env['GITHUB_REPOSITORY'] = ''
+// //   process.env['GITHUB_REF'] = 'refs/heads/master'
+// //   process.env['GITHUB_EVENT_NAME'] = 'push'
+
 //   const options: cp.ExecSyncOptions = {
 //     env: process.env
 //   }

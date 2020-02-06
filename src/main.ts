@@ -13,13 +13,15 @@ async function run(): Promise<void> {
     const branchPrefix = 'refs/heads/'
     const tagPrefix = 'refs/tags/'
 
-    if (eventName !== 'push') {
-      core.info('Skipping non-push event')
+    if (!['push', 'pull_request'].includes(eventName)) {
+      core.info('Skipping unsupported event')
       return
     }
 
-    let branch = getRequiredEnv('GITHUB_REF')
-    if (!branch.startsWith(branchPrefix)) {
+    const pullRequest = 'pull_request' === eventName
+
+    let branch = getRequiredEnv(pullRequest ? 'GITHUB_HEAD_REF' : 'GITHUB_REF')
+    if (!pullRequest && !branch.startsWith(branchPrefix)) {
       if (branch.startsWith(tagPrefix)) {
         core.info(`Skipping tag build`)
         return
@@ -38,16 +40,19 @@ async function run(): Promise<void> {
       owner,
       repo,
       branch,
-      event: 'push'
+      event: pullRequest ? 'pull_request' : 'push'
     })
 
     let matched = false
     let workflow = ''
-    let count = 0
+    let headRepoName = ''
     for await (const item of octokit.paginate.iterator(listRuns)) {
       // There is some sort of bug where the pagination URLs point to a
-      // different URL with a different data format
-      const elements = ++count < 2 ? item.data : item.data.workflow_runs
+      // different endpoint URL which trips up the resulting representation
+      // In that case, fallback to the actual REST 'workflow_runs' property
+      const elements =
+        item.data.length === undefined ? item.data.workflow_runs : item.data
+
       for (const element of elements) {
         core.info(
           `${element.id} : ${element.workflow_url} : ${element.status} : ${element.run_number}`
@@ -57,6 +62,7 @@ async function run(): Promise<void> {
           if (element.id.toString() === selfRunId) {
             matched = true
             workflow = element.workflow_url
+            headRepoName = pullRequest ? element.head_repository.full_name : ''
           }
           // Skip everything up to and matching this run
           continue
@@ -65,9 +71,10 @@ async function run(): Promise<void> {
         // Only cancel jobs with the same workflow
         if (
           workflow === element.workflow_url &&
-          element.status.toString() !== 'completed'
+          element.status.toString() !== 'completed' &&
+          (!pullRequest || headRepoName === element.head_repository.full_name)
         ) {
-          Promise.resolve(cancelRun(octokit, owner, repo, element.id))
+          await cancelRun(octokit, owner, repo, element.id)
         }
       }
     }
