@@ -1,9 +1,102 @@
 import * as github from '@actions/github'
 import * as core from '@actions/core'
 
+async function cancelDuplicates(
+  token: string,
+  selfRunId: string,
+  owner: string,
+  repo: string,
+  workflowId?: string,
+  branch?: string,
+  event?: string
+): Promise<void> {
+  const octokit = new github.GitHub(token)
+
+  // Deteermind the workflow to reduce the result set, or reference anothre workflow
+  let resolvedId
+  if (workflowId === undefined) {
+    const reply = await octokit.actions.getWorkflowRun({
+      owner,
+      repo,
+      // eslint-disable-next-line @typescript-eslint/camelcase
+      run_id: Number.parseInt(selfRunId)
+    })
+
+    resolvedId = reply.data.workflow_url.split('/').pop()
+  } else {
+    resolvedId = workflowId
+  }
+
+  core.info(`Workflow ID is: ${resolvedId}`)
+
+  const request =
+    branch === undefined
+      ? {
+          owner,
+          repo,
+          // eslint-disable-next-line @typescript-eslint/camelcase
+          workflow_id: resolvedId
+        }
+      : {
+          owner,
+          repo,
+          // eslint-disable-next-line @typescript-eslint/camelcase
+          workflow_id: resolvedId,
+          branch,
+          event
+        }
+
+  const listRuns = octokit.actions.listWorkflowRuns.endpoint.merge(request)
+
+  // If a workflow was provided process everything
+  let matched = workflowId !== undefined
+  const heads = new Set()
+  for await (const item of octokit.paginate.iterator(listRuns)) {
+    // There is some sort of bug where the pagination URLs point to a
+    // different endpoint URL which trips up the resulting representation
+    // In that case, fallback to the actual REST 'workflow_runs' property
+    const elements =
+      item.data.length === undefined ? item.data.workflow_runs : item.data
+
+    for (const element of elements) {
+      core.info(
+        `${element.id} : ${element.workflow_url} : ${element.status} : ${element.run_number}`
+      )
+
+      if (!matched) {
+        if (element.id.toString() !== selfRunId) {
+          // Skip everything up to this run
+          continue
+        }
+
+        matched = true
+        core.info(`Matched ${selfRunId}`)
+      }
+
+      if ('completed' === element.status.toString()) {
+        continue
+      }
+
+      // This is a set of one in the non-schedule case, otherwise everything is a candidate
+      const head = `${element.head_repository.full_name}/${element.head_branch}`
+      if (!heads.has(head)) {
+        core.info(`First: ${head}`)
+        heads.add(head)
+        continue
+      }
+
+      core.info(`Cancelling: ${head}`)
+
+      await cancelRun(octokit, owner, repo, element.id)
+    }
+  }
+}
+
 async function run(): Promise<void> {
   try {
     const token = core.getInput('token')
+
+    core.info(token)
 
     const selfRunId = getRequiredEnv('GITHUB_RUN_ID')
     const repository = getRequiredEnv('GITHUB_REPOSITORY')
@@ -12,6 +105,15 @@ async function run(): Promise<void> {
     const [owner, repo] = repository.split('/')
     const branchPrefix = 'refs/heads/'
     const tagPrefix = 'refs/tags/'
+
+    if ('schedule' === eventName) {
+      const workflowId = core.getInput('workflow')
+      if (!(workflowId.length > 0)) {
+        throw new Error('Workflow must be specified for schedule event type')
+      }
+      await cancelDuplicates(token, selfRunId, owner, repo, workflowId)
+      return
+    }
 
     if (!['push', 'pull_request'].includes(eventName)) {
       core.info('Skipping unsupported event')
@@ -35,49 +137,15 @@ async function run(): Promise<void> {
       `Branch is ${branch}, repo is ${repo}, and owner is ${owner}, and id is ${selfRunId}`
     )
 
-    const octokit = new github.GitHub(token)
-    const listRuns = octokit.actions.listRepoWorkflowRuns.endpoint.merge({
+    cancelDuplicates(
+      token,
+      selfRunId,
       owner,
       repo,
+      undefined,
       branch,
-      event: pullRequest ? 'pull_request' : 'push'
-    })
-
-    let matched = false
-    let workflow = ''
-    let headRepoName = ''
-    for await (const item of octokit.paginate.iterator(listRuns)) {
-      // There is some sort of bug where the pagination URLs point to a
-      // different endpoint URL which trips up the resulting representation
-      // In that case, fallback to the actual REST 'workflow_runs' property
-      const elements =
-        item.data.length === undefined ? item.data.workflow_runs : item.data
-
-      for (const element of elements) {
-        core.info(
-          `${element.id} : ${element.workflow_url} : ${element.status} : ${element.run_number}`
-        )
-
-        if (!matched) {
-          if (element.id.toString() === selfRunId) {
-            matched = true
-            workflow = element.workflow_url
-            headRepoName = pullRequest ? element.head_repository.full_name : ''
-          }
-          // Skip everything up to and matching this run
-          continue
-        }
-
-        // Only cancel jobs with the same workflow
-        if (
-          workflow === element.workflow_url &&
-          element.status.toString() !== 'completed' &&
-          (!pullRequest || headRepoName === element.head_repository.full_name)
-        ) {
-          await cancelRun(octokit, owner, repo, element.id)
-        }
-      }
-    }
+      eventName
+    )
   } catch (error) {
     core.setFailed(error.message)
   }
