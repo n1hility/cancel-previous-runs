@@ -1547,7 +1547,7 @@ function cancelDuplicates(token, selfRunId, owner, repo, workflowId, branch, eve
                 core.info(`Matched ${selfRunId}`);
             }
             if ('completed' === element.status.toString() ||
-                !['push', 'pull_request'].includes(element.event.toString)) {
+                !['push', 'pull_request'].includes(element.event.toString())) {
                 continue;
             }
             // This is a set of one in the non-schedule case, otherwise everything is a candidate
