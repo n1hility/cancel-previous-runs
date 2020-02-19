@@ -8,11 +8,11 @@
 
 The easiest and most complete approach to utilize this action, is to create a separate schedule event triggered workflow, which is directed at the workflow you wish to clear duplicate runs. At each cron interrval all branches and all PRs executing for either push or pull_request events will be processed and limited to one run per branch/pr. 
 
-Additionally this action can be placed as an early step in your workflow (e.g. after chekout), so that it can abort the other previously running jobs immediatily, in case most resources are tied up. Unfortunately this approach is a no-op wheen a pull request uses a fork for a source branch. This is because the GITHUB_TOKEN provided to runs with a fork source branch specifies reed-only peermissions for security reasons. write permissions are required to be able to cancel a job. Therefore, it's a good idea to only rely on this approach as a fallback in-addition to the previously described scheduling model. 
+Additionally this action can be placed as an early step in your workflow (e.g. after checkout), so that it can abort the other previously running jobs immediately, in case most resources are tied up. Unfortunately this approach is a no-op when a pull request uses a fork for a source branch. This is because the GITHUB_TOKEN provided to runs with a fork source branch specifies reed-only permissions for security reasons. write permissions are required to be able to cancel a job. Therefore, it's a good idea to only rely on this approach as a fallback in-addition to the previously described scheduling model. 
 
 ### Inputs
 
-token - The github token passed from `${{ secrets.GITHUB_TOKEN }}`. Since workflow files are visible in the repository, **DO NOT HARDODE A TOKEN ONLY USE A REFERENCE**. 
+token - The github token passed from `${{ secrets.GITHUB_TOKEN }}`. Since workflow files are visible in the repository, **DO NOT HARDCODE A TOKEN ONLY USE A REFERENCE**. 
 workflow - The filename of the workflow to limit runs on (only applies to schedule events) 
 
 
