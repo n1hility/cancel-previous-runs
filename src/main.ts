@@ -109,7 +109,10 @@ async function cancelDuplicates(
       core.info(`Matched ${selfRunId}`)
     }
 
-    if ('completed' === element.status.toString()) {
+    if (
+      'completed' === element.status.toString() ||
+      !['push', 'pull_request'].includes(element.event.toString)
+    ) {
       continue
     }
 
