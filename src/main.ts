@@ -111,7 +111,7 @@ async function cancelDuplicates(
 
     if (
       'completed' === element.status.toString() ||
-      !['push', 'pull_request'].includes(element.event.toString)
+      !['push', 'pull_request'].includes(element.event.toString())
     ) {
       continue
     }
