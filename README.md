@@ -23,7 +23,9 @@ name: Cleanup Duplicate Branches and PRs
 on:
   schedule:
     - cron:  '*/15 * * * *'
-cancel-runs: 
+cancel-runs:
+  # Prevent forks from running this to be nice
+  if: github.repository == 'foo-org/my-repo'
   runs-on: ubuntu-latest
     steps:
       - uses: n1hility/cancel-previous-runs@v2
