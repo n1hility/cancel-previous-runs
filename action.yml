@@ -1,4 +1,4 @@
-name: 'Cancel Previous Runs'
+name: 'Cancel Previous Workflow Runs'
 description: 'Cancels all previous runs of this workflow'
 author: 'n1hility'
 inputs:
