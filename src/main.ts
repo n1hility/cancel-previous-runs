@@ -45,7 +45,7 @@ async function cancelDuplicates(
 ): Promise<void> {
   const octokit = new github.GitHub(token)
 
-  // Deteermind the workflow to reduce the result set, or reference anothre workflow
+  // Determine the workflow to reduce the result set, or reference another workflow
   let resolvedId = ''
   if (workflowId === undefined) {
     const reply = await octokit.actions.getWorkflowRun({
