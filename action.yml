@@ -5,6 +5,9 @@ inputs:
   token:
     description: The GITHUB_TOKEN secret of this github workflow
     required: true
+  workflow:
+    description: The filename of the workflow to limit runs on (only applies to schedule events)
+    required: false
 runs:
   using: 'node12'
   main: 'dist/index.js'

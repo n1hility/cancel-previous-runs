@@ -5,7 +5,7 @@ This action cancels previous runs for one or more branches/prs associated with a
 
 ## Usage
 
-The easiest and most complete approach to utilize this action, is to create a separate schedule event triggered workflow, which is directed at the workflow you wish to clear duplicate runs. At each cron interrval all branches and all PRs executing for either push or pull_request events will be processed and limited to one run per branch/pr. 
+The easiest and most complete approach to utilize this action, is to create a separate schedule event triggered workflow, which is directed at the workflow you wish to clear duplicate runs. At each cron interval all branches and all PRs executing for either push or pull_request events will be processed and limited to one run per branch/pr.
 
 Additionally this action can be placed as an early step in your workflow (e.g. after checkout), so that it can abort the other previously running jobs immediately, in case most resources are tied up. Unfortunately this approach is a no-op when a pull request uses a fork for a source branch. This is because the GITHUB_TOKEN provided to runs with a fork source branch specifies reed-only permissions for security reasons. write permissions are required to be able to cancel a job. Therefore, it's a good idea to only rely on this approach as a fallback in-addition to the previously described scheduling model. 
 
