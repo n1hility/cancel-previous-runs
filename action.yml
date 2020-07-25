@@ -1,12 +1,16 @@
-name: 'Cancel Previous Workflow Runs'
-description: 'Cancels all previous runs of this workflow'
-author: 'n1hility'
+name: 'Cancel Workflow Runs'
+description: 'Cancels previous runs and optionally failed runs of a workflow'
+author: 'potiuk'
 inputs:
   token:
-    description: The GITHUB_TOKEN secret of this github workflow
+    description: The GITHUB_TOKEN secret of the repository
     required: true
   workflow:
-    description: The filename of the workflow to limit runs on (only applies to schedule events)
+    description: The filename of the workflow to limit runs on (only applies to scheduled events)
+    required: false
+  failFastJobNames:
+    description: |
+      Array of job names (JSON-encoded string). Failures of those jobs are fail-fast of whole workflow.
     required: false
 runs:
   using: 'node12'

@@ -34,7 +34,7 @@ module.exports =
 /******/ 	// the startup function
 /******/ 	function startup() {
 /******/ 		// Load entry module and return exports
-/******/ 		return __webpack_require__(131);
+/******/ 		return __webpack_require__(198);
 /******/ 	};
 /******/
 /******/ 	// run startup
@@ -1434,208 +1434,6 @@ module.exports = require("child_process");
 
 /***/ }),
 
-/***/ 131:
-/***/ (function(__unusedmodule, exports, __webpack_require__) {
-
-"use strict";
-
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
-var __asyncValues = (this && this.__asyncValues) || function (o) {
-    if (!Symbol.asyncIterator) throw new TypeError("Symbol.asyncIterator is not defined.");
-    var m = o[Symbol.asyncIterator], i;
-    return m ? m.call(o) : (o = typeof __values === "function" ? __values(o) : o[Symbol.iterator](), i = {}, verb("next"), verb("throw"), verb("return"), i[Symbol.asyncIterator] = function () { return this; }, i);
-    function verb(n) { i[n] = o[n] && function (v) { return new Promise(function (resolve, reject) { v = o[n](v), settle(resolve, reject, v.done, v.value); }); }; }
-    function settle(resolve, reject, d, v) { Promise.resolve(v).then(function(v) { resolve({ value: v, done: d }); }, reject); }
-};
-var __importStar = (this && this.__importStar) || function (mod) {
-    if (mod && mod.__esModule) return mod;
-    var result = {};
-    if (mod != null) for (var k in mod) if (Object.hasOwnProperty.call(mod, k)) result[k] = mod[k];
-    result["default"] = mod;
-    return result;
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-const github = __importStar(__webpack_require__(469));
-const core = __importStar(__webpack_require__(393));
-const treemap = __importStar(__webpack_require__(706));
-function createRunsQuery(octokit, owner, repo, workflowId, status, branch, event) {
-    const request = branch === undefined
-        ? {
-            owner,
-            repo,
-            // eslint-disable-next-line @typescript-eslint/camelcase
-            workflow_id: workflowId,
-            status
-        }
-        : {
-            owner,
-            repo,
-            // eslint-disable-next-line @typescript-eslint/camelcase
-            workflow_id: workflowId,
-            status,
-            branch,
-            event
-        };
-    return octokit.actions.listWorkflowRuns.endpoint.merge(request);
-}
-function cancelDuplicates(token, selfRunId, owner, repo, workflowId, branch, event) {
-    var e_1, _a;
-    return __awaiter(this, void 0, void 0, function* () {
-        const octokit = new github.GitHub(token);
-        // Deteermind the workflow to reduce the result set, or reference anothre workflow
-        let resolvedId = '';
-        if (workflowId === undefined) {
-            const reply = yield octokit.actions.getWorkflowRun({
-                owner,
-                repo,
-                // eslint-disable-next-line @typescript-eslint/camelcase
-                run_id: Number.parseInt(selfRunId)
-            });
-            resolvedId = reply.data.workflow_url.split('/').pop() || '';
-            if (!(resolvedId.length > 0)) {
-                throw new Error('Could not resolve workflow');
-            }
-        }
-        else {
-            resolvedId = workflowId;
-        }
-        core.info(`Workflow ID is: ${resolvedId}`);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const sorted = new treemap.TreeMap();
-        for (const status of ['queued', 'in_progress']) {
-            const listRuns = createRunsQuery(octokit, owner, repo, resolvedId, status, branch, event);
-            try {
-                for (var _b = __asyncValues(octokit.paginate.iterator(listRuns)), _c; _c = yield _b.next(), !_c.done;) {
-                    const item = _c.value;
-                    // There is some sort of bug where the pagination URLs point to a
-                    // different endpoint URL which trips up the resulting representation
-                    // In that case, fallback to the actual REST 'workflow_runs' property
-                    const elements = item.data.length === undefined ? item.data.workflow_runs : item.data;
-                    for (const element of elements) {
-                        sorted.set(element.run_number, element);
-                    }
-                }
-            }
-            catch (e_1_1) { e_1 = { error: e_1_1 }; }
-            finally {
-                try {
-                    if (_c && !_c.done && (_a = _b.return)) yield _a.call(_b);
-                }
-                finally { if (e_1) throw e_1.error; }
-            }
-        }
-        // If a workflow was provided process everything
-        let matched = workflowId !== undefined;
-        const heads = new Set();
-        for (const entry of sorted.backward()) {
-            const element = entry[1];
-            core.info(`${element.id} : ${element.workflow_url} : ${element.status} : ${element.run_number}`);
-            if (!matched) {
-                if (element.id.toString() !== selfRunId) {
-                    // Skip everything up to this run
-                    continue;
-                }
-                matched = true;
-                core.info(`Matched ${selfRunId}`);
-            }
-            if ('completed' === element.status.toString() ||
-                !['push', 'pull_request'].includes(element.event.toString())) {
-                continue;
-            }
-            // This is a set of one in the non-schedule case, otherwise everything is a candidate
-            const head = `${element.head_repository.full_name}/${element.head_branch}`;
-            if (!heads.has(head)) {
-                core.info(`First: ${head}`);
-                heads.add(head);
-                continue;
-            }
-            core.info(`Cancelling: ${head}`);
-            yield cancelRun(octokit, owner, repo, element.id);
-        }
-    });
-}
-function run() {
-    return __awaiter(this, void 0, void 0, function* () {
-        try {
-            const token = core.getInput('token');
-            core.info(token);
-            const selfRunId = getRequiredEnv('GITHUB_RUN_ID');
-            const repository = getRequiredEnv('GITHUB_REPOSITORY');
-            const eventName = getRequiredEnv('GITHUB_EVENT_NAME');
-            const [owner, repo] = repository.split('/');
-            const branchPrefix = 'refs/heads/';
-            const tagPrefix = 'refs/tags/';
-            if ('schedule' === eventName) {
-                const workflowId = core.getInput('workflow');
-                if (!(workflowId.length > 0)) {
-                    throw new Error('Workflow must be specified for schedule event type');
-                }
-                yield cancelDuplicates(token, selfRunId, owner, repo, workflowId);
-                return;
-            }
-            if (!['push', 'pull_request'].includes(eventName)) {
-                core.info('Skipping unsupported event');
-                return;
-            }
-            const pullRequest = 'pull_request' === eventName;
-            let branch = getRequiredEnv(pullRequest ? 'GITHUB_HEAD_REF' : 'GITHUB_REF');
-            if (!pullRequest && !branch.startsWith(branchPrefix)) {
-                if (branch.startsWith(tagPrefix)) {
-                    core.info(`Skipping tag build`);
-                    return;
-                }
-                const message = `${branch} was not an expected branch ref (refs/heads/).`;
-                throw new Error(message);
-            }
-            branch = branch.replace(branchPrefix, '');
-            core.info(`Branch is ${branch}, repo is ${repo}, and owner is ${owner}, and id is ${selfRunId}`);
-            cancelDuplicates(token, selfRunId, owner, repo, undefined, branch, eventName);
-        }
-        catch (error) {
-            core.setFailed(error.message);
-        }
-    });
-}
-function cancelRun(
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-octokit, owner, repo, id) {
-    return __awaiter(this, void 0, void 0, function* () {
-        let reply;
-        try {
-            reply = yield octokit.actions.cancelWorkflowRun({
-                owner,
-                repo,
-                // eslint-disable-next-line @typescript-eslint/camelcase
-                run_id: id
-            });
-            core.info(`Previous run (id ${id}) cancelled, status = ${reply.status}`);
-        }
-        catch (error) {
-            core.info(`[warn] Could not cancel run (id ${id}): [${error.status}] ${error.message}`);
-        }
-    });
-}
-function getRequiredEnv(key) {
-    const value = process.env[key];
-    if (value === undefined) {
-        const message = `${key} was not defined.`;
-        throw new Error(message);
-    }
-    return value;
-}
-run();
-
-
-/***/ }),
-
 /***/ 141:
 /***/ (function(__unusedmodule, exports, __webpack_require__) {
 
@@ -2190,6 +1988,311 @@ function checkMode (stat, options) {
 
 /***/ }),
 
+/***/ 198:
+/***/ (function(__unusedmodule, exports, __webpack_require__) {
+
+"use strict";
+
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
+var __asyncValues = (this && this.__asyncValues) || function (o) {
+    if (!Symbol.asyncIterator) throw new TypeError("Symbol.asyncIterator is not defined.");
+    var m = o[Symbol.asyncIterator], i;
+    return m ? m.call(o) : (o = typeof __values === "function" ? __values(o) : o[Symbol.iterator](), i = {}, verb("next"), verb("throw"), verb("return"), i[Symbol.asyncIterator] = function () { return this; }, i);
+    function verb(n) { i[n] = o[n] && function (v) { return new Promise(function (resolve, reject) { v = o[n](v), settle(resolve, reject, v.done, v.value); }); }; }
+    function settle(resolve, reject, d, v) { Promise.resolve(v).then(function(v) { resolve({ value: v, done: d }); }, reject); }
+};
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (Object.hasOwnProperty.call(mod, k)) result[k] = mod[k];
+    result["default"] = mod;
+    return result;
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const github = __importStar(__webpack_require__(469));
+const core = __importStar(__webpack_require__(393));
+const treemap = __importStar(__webpack_require__(706));
+function createListRunsQueryForAllRuns(octokit, owner, repo, workflowId, status) {
+    const request = {
+        owner,
+        repo,
+        // eslint-disable-next-line @typescript-eslint/camelcase
+        workflow_id: workflowId,
+        status
+    };
+    return octokit.actions.listWorkflowRuns.endpoint.merge(request);
+}
+function createListRunsQueryForSelfRun(octokit, owner, repo, workflowId, status, branch, eventName) {
+    const request = {
+        owner,
+        repo,
+        // eslint-disable-next-line @typescript-eslint/camelcase
+        workflow_id: workflowId,
+        status,
+        branch,
+        event: eventName
+    };
+    return octokit.actions.listWorkflowRuns.endpoint.merge(request);
+}
+function createJobsForWorkflowRunQuery(octokit, owner, repo, runId) {
+    const request = {
+        owner,
+        repo,
+        // eslint-disable-next-line @typescript-eslint/camelcase
+        run_id: runId,
+    };
+    return octokit.actions.listJobsForWorkflowRun.endpoint.merge(request);
+}
+function cancelOnFailFastJobsFailed(octokit, owner, repo, runId, head, failFastJobNames) {
+    var e_1, _a;
+    return __awaiter(this, void 0, void 0, function* () {
+        const listJobs = createJobsForWorkflowRunQuery(octokit, owner, repo, runId);
+        core.info(`Cancelling runId ${runId} in case one of the ${failFastJobNames} failed`);
+        try {
+            for (var _b = __asyncValues(octokit.paginate.iterator(listJobs)), _c; _c = yield _b.next(), !_c.done;) {
+                const item = _c.value;
+                for (const job of item.data.jobs) {
+                    core.info(`The job name: ${job.name}, Conclusion: ${job.conclusion}`);
+                    if (job.conclusion == 'failure' &&
+                        failFastJobNames.some(jobNameRegexp => job.name.match(jobNameRegexp))) {
+                        core.info(`Job ${job.name} has failed and it matches one of the ${failFastJobNames} regexps`);
+                        core.info(`Cancelling the workflow run: ${runId}, head: ${head}`);
+                        yield cancelRun(octokit, owner, repo, runId);
+                        return;
+                    }
+                }
+            }
+        }
+        catch (e_1_1) { e_1 = { error: e_1_1 }; }
+        finally {
+            try {
+                if (_c && !_c.done && (_a = _b.return)) yield _a.call(_b);
+            }
+            finally { if (e_1) throw e_1.error; }
+        }
+    });
+}
+function getSelfWorkflowId(octokit, selfRunId, owner, repo) {
+    return __awaiter(this, void 0, void 0, function* () {
+        let workflowId;
+        const reply = yield octokit.actions.getWorkflowRun({
+            owner,
+            repo,
+            // eslint-disable-next-line @typescript-eslint/camelcase
+            run_id: Number.parseInt(selfRunId)
+        });
+        workflowId = reply.data.workflow_url.split('/').pop() || '';
+        if (!(workflowId.length > 0)) {
+            throw new Error('Could not resolve workflow');
+        }
+        return workflowId;
+    });
+}
+function getSortedWorkflowRuns(octokit, createListRunQuery) {
+    var e_2, _a;
+    return __awaiter(this, void 0, void 0, function* () {
+        const sortedWorkflowRuns = new treemap.TreeMap();
+        for (const status of ['queued', 'in_progress']) {
+            const listRuns = yield createListRunQuery(status);
+            try {
+                for (var _b = __asyncValues(octokit.paginate.iterator(listRuns)), _c; _c = yield _b.next(), !_c.done;) {
+                    const item = _c.value;
+                    // There is some sort of bug where the pagination URLs point to a
+                    // different endpoint URL which trips up the resulting representation
+                    // In that case, fallback to the actual REST 'workflow_runs' property
+                    const elements = item.data.length === undefined ? item.data.workflow_runs : item.data;
+                    for (const element of elements) {
+                        sortedWorkflowRuns.set(element.run_number, element);
+                    }
+                }
+            }
+            catch (e_2_1) { e_2 = { error: e_2_1 }; }
+            finally {
+                try {
+                    if (_c && !_c.done && (_a = _b.return)) yield _a.call(_b);
+                }
+                finally { if (e_2) throw e_2.error; }
+            }
+        }
+        core.info(`Found runs: ${Array.from(sortedWorkflowRuns.backward()).map(t => t[0])}`);
+        return sortedWorkflowRuns;
+    });
+}
+function shouldRunBeSkipped(runItem) {
+    if ('completed' === runItem.status.toString()) {
+        core.info(`Skip completed run: ${runItem.id}`);
+        return true;
+    }
+    if (!['push', 'pull_request'].includes(runItem.event.toString())) {
+        core.info(`Skip run: ${runItem.id} as it is neither push nor pull_request (${runItem.event}`);
+        return true;
+    }
+    return false;
+}
+function cancelRun(octokit, owner, repo, id) {
+    return __awaiter(this, void 0, void 0, function* () {
+        let reply;
+        try {
+            reply = yield octokit.actions.cancelWorkflowRun({
+                owner: owner,
+                repo: repo,
+                // eslint-disable-next-line @typescript-eslint/camelcase
+                run_id: id
+            });
+            core.info(`Previous run (id ${id}) cancelled, status = ${reply.status}`);
+        }
+        catch (error) {
+            core.info(`[warn] Could not cancel run (id ${id}): [${error.status}] ${error.message}`);
+        }
+    });
+}
+// Kills past runs for my own workflow.
+function findAndCancelPastRunsForSelf(octokit, selfRunId, owner, repo, branch, eventName) {
+    return __awaiter(this, void 0, void 0, function* () {
+        core.info(`findAndCancelPastRunsForSelf:  ${selfRunId}, ${owner}, ${repo}, ${branch}, ${eventName}`);
+        const workflowId = yield getSelfWorkflowId(octokit, selfRunId, owner, repo);
+        core.info(`My own workflow ID is: ${workflowId}`);
+        const sortedWorkflowRuns = yield getSortedWorkflowRuns(octokit, function (status) {
+            return createListRunsQueryForSelfRun(octokit, owner, repo, workflowId, status, branch, eventName);
+        });
+        let matched = false;
+        const headsToRunIdMap = new Map();
+        for (const [key, runItem] of sortedWorkflowRuns.backward()) {
+            core.info(`Run number: ${key}, RunId: ${runItem.id}, URL: ${runItem.workflow_url}. Status ${runItem.status}`);
+            if (!matched) {
+                if (runItem.id.toString() !== selfRunId) {
+                    core.info(`Skip run ${runItem.id} as it was started before my own id: ${selfRunId}`);
+                    continue;
+                }
+                matched = true;
+                core.info(`Matched ${selfRunId}. Reached my own ID, now looping through all remaining runs/`);
+                core.info("I will cancel all except the first for each 'head' available");
+            }
+            if (shouldRunBeSkipped(runItem)) {
+                continue;
+            }
+            // Head of the run
+            const head = `${runItem.head_repository.full_name}/${runItem.head_branch}`;
+            if (!headsToRunIdMap.has(head)) {
+                core.info(`First run for the head: ${head}. Skipping it. Next ones with same head will be cancelled.`);
+                headsToRunIdMap.set(head, runItem.id);
+                continue;
+            }
+            core.info(`Cancelling run: ${runItem.id}, head ${head}.`);
+            core.info(`There is a later run with same head: ${headsToRunIdMap.get(head)}`);
+            yield cancelRun(octokit, owner, repo, runItem.id);
+        }
+    });
+}
+// Kills past runs for my own workflow.
+function findAndCancelPastRunsForSchedule(octokit, workflowId, owner, repo, failFastJobNames) {
+    return __awaiter(this, void 0, void 0, function* () {
+        core.info(`findAndCancelPastRunsForSchedule: ${owner}, ${workflowId}, ${repo}`);
+        const sortedWorkflowRuns = yield getSortedWorkflowRuns(octokit, function (status) {
+            return createListRunsQueryForAllRuns(octokit, owner, repo, workflowId, status);
+        });
+        const headsToRunIdMap = new Map();
+        for (const [key, runItem] of sortedWorkflowRuns.backward()) {
+            core.info(` ${key} ${runItem.id} : ${runItem.workflow_url} : ${runItem.status} : ${runItem.run_number}`);
+            if (shouldRunBeSkipped(runItem)) {
+                continue;
+            }
+            // Head of the run
+            const head = `${runItem.head_repository.full_name}/${runItem.head_branch}`;
+            if (!headsToRunIdMap.has(head)) {
+                core.info(`First run for the head: ${head}. Next runs with the same head will be cancelled.`);
+                headsToRunIdMap.set(head, runItem.id);
+                if (failFastJobNames !== undefined) {
+                    core.info("Checking if the head run failed in specified jobs");
+                    yield cancelOnFailFastJobsFailed(octokit, owner, repo, runItem.id, head, failFastJobNames);
+                }
+                else {
+                    core.info("Skipping the head run.");
+                }
+                continue;
+            }
+            core.info(`Cancelling run: ${runItem.id}, head ${head}.`);
+            core.info(`There is a later run with same head: ${headsToRunIdMap.get(head)}`);
+            yield cancelRun(octokit, owner, repo, runItem.id);
+        }
+    });
+}
+function getRequiredEnv(key) {
+    const value = process.env[key];
+    if (value === undefined) {
+        const message = `${key} was not defined.`;
+        throw new Error(message);
+    }
+    return value;
+}
+function runScheduledRun(octokit, owner, repo) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const workflowId = core.getInput('workflow');
+        if (!(workflowId.length > 0)) {
+            core.setFailed('Workflow must be specified for schedule event type');
+            return;
+        }
+        const failFastJobNames = JSON.parse(core.getInput('failFastJobNames'));
+        if (failFastJobNames !== undefined) {
+            core.info(`Checking also if last run failed in one of the jobs: ${failFastJobNames}`);
+        }
+        yield findAndCancelPastRunsForSchedule(octokit, workflowId, owner, repo, failFastJobNames);
+        return;
+    });
+}
+function runRegularRun(octokit, selfRunId, owner, repo, eventName) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const pullRequest = 'pull_request' === eventName;
+        const branchPrefix = 'refs/heads/';
+        const tagPrefix = 'refs/tags/';
+        let branch = getRequiredEnv(pullRequest ? 'GITHUB_HEAD_REF' : 'GITHUB_REF');
+        if (!pullRequest && !branch.startsWith(branchPrefix)) {
+            if (branch.startsWith(tagPrefix)) {
+                core.info(`Skipping tag build`);
+                return;
+            }
+            core.setFailed(`${branch} was not an expected branch ref (refs/heads/).`);
+            return;
+        }
+        branch = branch.replace(branchPrefix, '');
+        core.info(`Branch is ${branch}, repo is ${repo}, and owner is ${owner}, and id is ${selfRunId}`);
+        yield findAndCancelPastRunsForSelf(octokit, selfRunId, owner, repo, branch, eventName);
+    });
+}
+function run() {
+    return __awaiter(this, void 0, void 0, function* () {
+        const token = core.getInput('token');
+        const octokit = new github.GitHub(token);
+        core.info(`Starting checking for workflows to cancel`);
+        const selfRunId = getRequiredEnv('GITHUB_RUN_ID');
+        const repository = getRequiredEnv('GITHUB_REPOSITORY');
+        const eventName = getRequiredEnv('GITHUB_EVENT_NAME');
+        const [owner, repo] = repository.split('/');
+        if ('schedule' === eventName) {
+            yield runScheduledRun(octokit, owner, repo);
+        }
+        else if (!['push', 'pull_request'].includes(eventName)) {
+            core.info('Skipping unsupported event');
+            return;
+        }
+        else {
+            yield runRegularRun(octokit, selfRunId, owner, repo, eventName);
+        }
+    });
+}
+run().then(() => core.info("Cancel complete")).catch(e => core.setFailed(e.message));
+
+
+/***/ }),
+
 /***/ 211:
 /***/ (function(module) {
 
@@ -2200,7 +2303,7 @@ module.exports = require("https");
 /***/ 215:
 /***/ (function(module) {
 
-module.exports = {"_args":[["@octokit/rest@16.43.0","/Users/jason/devel/typescript-action"]],"_from":"@octokit/rest@16.43.0","_id":"@octokit/rest@16.43.0","_inBundle":false,"_integrity":"sha512-u+OwrTxHuppVcssGmwCmb4jgPNzsRseJ2rS5PrZk2ASC+WkaF5Q7wu8zVtJ4OA24jK6aRymlwA2uwL36NU9nAA==","_location":"/@octokit/rest","_phantomChildren":{},"_requested":{"type":"version","registry":true,"raw":"@octokit/rest@16.43.0","name":"@octokit/rest","escapedName":"@octokit%2frest","scope":"@octokit","rawSpec":"16.43.0","saveSpec":null,"fetchSpec":"16.43.0"},"_requiredBy":["/@actions/github"],"_resolved":"https://registry.npmjs.org/@octokit/rest/-/rest-16.43.0.tgz","_spec":"16.43.0","_where":"/Users/jason/devel/typescript-action","author":{"name":"Gregor Martynus","url":"https://github.com/gr2m"},"bugs":{"url":"https://github.com/octokit/rest.js/issues"},"bundlesize":[{"path":"./dist/octokit-rest.min.js.gz","maxSize":"33 kB"}],"contributors":[{"name":"Mike de Boer","email":"info@mikedeboer.nl"},{"name":"Fabian Jakobs","email":"fabian@c9.io"},{"name":"Joe Gallo","email":"joe@brassafrax.com"},{"name":"Gregor Martynus","url":"https://github.com/gr2m"}],"dependencies":{"@octokit/auth-token":"^2.4.0","@octokit/plugin-paginate-rest":"^1.1.1","@octokit/plugin-request-log":"^1.0.0","@octokit/plugin-rest-endpoint-methods":"2.4.0","@octokit/request":"^5.2.0","@octokit/request-error":"^1.0.2","atob-lite":"^2.0.0","before-after-hook":"^2.0.0","btoa-lite":"^1.0.0","deprecation":"^2.0.0","lodash.get":"^4.4.2","lodash.set":"^4.3.2","lodash.uniq":"^4.5.0","octokit-pagination-methods":"^1.1.0","once":"^1.4.0","universal-user-agent":"^4.0.0"},"description":"GitHub REST API client for Node.js","devDependencies":{"@gimenete/type-writer":"^0.1.3","@octokit/auth":"^1.1.1","@octokit/fixtures-server":"^5.0.6","@octokit/graphql":"^4.2.0","@types/node":"^13.1.0","bundlesize":"^0.18.0","chai":"^4.1.2","compression-webpack-plugin":"^3.1.0","cypress":"^3.0.0","glob":"^7.1.2","http-proxy-agent":"^4.0.0","lodash.camelcase":"^4.3.0","lodash.merge":"^4.6.1","lodash.upperfirst":"^4.3.1","lolex":"^5.1.2","mkdirp":"^1.0.0","mocha":"^7.0.1","mustache":"^4.0.0","nock":"^11.3.3","npm-run-all":"^4.1.2","nyc":"^15.0.0","prettier":"^1.14.2","proxy":"^1.0.0","semantic-release":"^17.0.0","sinon":"^8.0.0","sinon-chai":"^3.0.0","sort-keys":"^4.0.0","string-to-arraybuffer":"^1.0.0","string-to-jsdoc-comment":"^1.0.0","typescript":"^3.3.1","webpack":"^4.0.0","webpack-bundle-analyzer":"^3.0.0","webpack-cli":"^3.0.0"},"files":["index.js","index.d.ts","lib","plugins"],"homepage":"https://github.com/octokit/rest.js#readme","keywords":["octokit","github","rest","api-client"],"license":"MIT","name":"@octokit/rest","nyc":{"ignore":["test"]},"publishConfig":{"access":"public"},"release":{"publish":["@semantic-release/npm",{"path":"@semantic-release/github","assets":["dist/*","!dist/*.map.gz"]}]},"repository":{"type":"git","url":"git+https://github.com/octokit/rest.js.git"},"scripts":{"build":"npm-run-all build:*","build:browser":"npm-run-all build:browser:*","build:browser:development":"webpack --mode development --entry . --output-library=Octokit --output=./dist/octokit-rest.js --profile --json > dist/bundle-stats.json","build:browser:production":"webpack --mode production --entry . --plugin=compression-webpack-plugin --output-library=Octokit --output-path=./dist --output-filename=octokit-rest.min.js --devtool source-map","build:ts":"npm run -s update-endpoints:typescript","coverage":"nyc report --reporter=html && open coverage/index.html","generate-bundle-report":"webpack-bundle-analyzer dist/bundle-stats.json --mode=static --no-open --report dist/bundle-report.html","lint":"prettier --check '{lib,plugins,scripts,test}/**/*.{js,json,ts}' 'docs/*.{js,json}' 'docs/src/**/*' index.js README.md package.json","lint:fix":"prettier --write '{lib,plugins,scripts,test}/**/*.{js,json,ts}' 'docs/*.{js,json}' 'docs/src/**/*' index.js README.md package.json","postvalidate:ts":"tsc --noEmit --target es6 test/typescript-validate.ts","prebuild:browser":"mkdirp dist/","pretest":"npm run -s lint","prevalidate:ts":"npm run -s build:ts","start-fixtures-server":"octokit-fixtures-server","test":"nyc mocha test/mocha-node-setup.js \"test/*/**/*-test.js\"","test:browser":"cypress run --browser chrome","update-endpoints":"npm-run-all update-endpoints:*","update-endpoints:fetch-json":"node scripts/update-endpoints/fetch-json","update-endpoints:typescript":"node scripts/update-endpoints/typescript","validate:ts":"tsc --target es6 --noImplicitAny index.d.ts"},"types":"index.d.ts","version":"16.43.0"};
+module.exports = {"_args":[["@octokit/rest@16.43.0","/home/jarek/code/cancel-previous-runs"]],"_from":"@octokit/rest@16.43.0","_id":"@octokit/rest@16.43.0","_inBundle":false,"_integrity":"sha512-u+OwrTxHuppVcssGmwCmb4jgPNzsRseJ2rS5PrZk2ASC+WkaF5Q7wu8zVtJ4OA24jK6aRymlwA2uwL36NU9nAA==","_location":"/@octokit/rest","_phantomChildren":{},"_requested":{"type":"version","registry":true,"raw":"@octokit/rest@16.43.0","name":"@octokit/rest","escapedName":"@octokit%2frest","scope":"@octokit","rawSpec":"16.43.0","saveSpec":null,"fetchSpec":"16.43.0"},"_requiredBy":["/@actions/github"],"_resolved":"https://registry.npmjs.org/@octokit/rest/-/rest-16.43.0.tgz","_spec":"16.43.0","_where":"/home/jarek/code/cancel-previous-runs","author":{"name":"Gregor Martynus","url":"https://github.com/gr2m"},"bugs":{"url":"https://github.com/octokit/rest.js/issues"},"bundlesize":[{"path":"./dist/octokit-rest.min.js.gz","maxSize":"33 kB"}],"contributors":[{"name":"Mike de Boer","email":"info@mikedeboer.nl"},{"name":"Fabian Jakobs","email":"fabian@c9.io"},{"name":"Joe Gallo","email":"joe@brassafrax.com"},{"name":"Gregor Martynus","url":"https://github.com/gr2m"}],"dependencies":{"@octokit/auth-token":"^2.4.0","@octokit/plugin-paginate-rest":"^1.1.1","@octokit/plugin-request-log":"^1.0.0","@octokit/plugin-rest-endpoint-methods":"2.4.0","@octokit/request":"^5.2.0","@octokit/request-error":"^1.0.2","atob-lite":"^2.0.0","before-after-hook":"^2.0.0","btoa-lite":"^1.0.0","deprecation":"^2.0.0","lodash.get":"^4.4.2","lodash.set":"^4.3.2","lodash.uniq":"^4.5.0","octokit-pagination-methods":"^1.1.0","once":"^1.4.0","universal-user-agent":"^4.0.0"},"description":"GitHub REST API client for Node.js","devDependencies":{"@gimenete/type-writer":"^0.1.3","@octokit/auth":"^1.1.1","@octokit/fixtures-server":"^5.0.6","@octokit/graphql":"^4.2.0","@types/node":"^13.1.0","bundlesize":"^0.18.0","chai":"^4.1.2","compression-webpack-plugin":"^3.1.0","cypress":"^3.0.0","glob":"^7.1.2","http-proxy-agent":"^4.0.0","lodash.camelcase":"^4.3.0","lodash.merge":"^4.6.1","lodash.upperfirst":"^4.3.1","lolex":"^5.1.2","mkdirp":"^1.0.0","mocha":"^7.0.1","mustache":"^4.0.0","nock":"^11.3.3","npm-run-all":"^4.1.2","nyc":"^15.0.0","prettier":"^1.14.2","proxy":"^1.0.0","semantic-release":"^17.0.0","sinon":"^8.0.0","sinon-chai":"^3.0.0","sort-keys":"^4.0.0","string-to-arraybuffer":"^1.0.0","string-to-jsdoc-comment":"^1.0.0","typescript":"^3.3.1","webpack":"^4.0.0","webpack-bundle-analyzer":"^3.0.0","webpack-cli":"^3.0.0"},"files":["index.js","index.d.ts","lib","plugins"],"homepage":"https://github.com/octokit/rest.js#readme","keywords":["octokit","github","rest","api-client"],"license":"MIT","name":"@octokit/rest","nyc":{"ignore":["test"]},"publishConfig":{"access":"public"},"release":{"publish":["@semantic-release/npm",{"path":"@semantic-release/github","assets":["dist/*","!dist/*.map.gz"]}]},"repository":{"type":"git","url":"git+https://github.com/octokit/rest.js.git"},"scripts":{"build":"npm-run-all build:*","build:browser":"npm-run-all build:browser:*","build:browser:development":"webpack --mode development --entry . --output-library=Octokit --output=./dist/octokit-rest.js --profile --json > dist/bundle-stats.json","build:browser:production":"webpack --mode production --entry . --plugin=compression-webpack-plugin --output-library=Octokit --output-path=./dist --output-filename=octokit-rest.min.js --devtool source-map","build:ts":"npm run -s update-endpoints:typescript","coverage":"nyc report --reporter=html && open coverage/index.html","generate-bundle-report":"webpack-bundle-analyzer dist/bundle-stats.json --mode=static --no-open --report dist/bundle-report.html","lint":"prettier --check '{lib,plugins,scripts,test}/**/*.{js,json,ts}' 'docs/*.{js,json}' 'docs/src/**/*' index.js README.md package.json","lint:fix":"prettier --write '{lib,plugins,scripts,test}/**/*.{js,json,ts}' 'docs/*.{js,json}' 'docs/src/**/*' index.js README.md package.json","postvalidate:ts":"tsc --noEmit --target es6 test/typescript-validate.ts","prebuild:browser":"mkdirp dist/","pretest":"npm run -s lint","prevalidate:ts":"npm run -s build:ts","start-fixtures-server":"octokit-fixtures-server","test":"nyc mocha test/mocha-node-setup.js \"test/*/**/*-test.js\"","test:browser":"cypress run --browser chrome","update-endpoints":"npm-run-all update-endpoints:*","update-endpoints:fetch-json":"node scripts/update-endpoints/fetch-json","update-endpoints:typescript":"node scripts/update-endpoints/typescript","validate:ts":"tsc --target es6 --noImplicitAny index.d.ts"},"types":"index.d.ts","version":"16.43.0"};
 
 /***/ }),
 
@@ -7692,12 +7795,22 @@ var HttpCodes;
     HttpCodes[HttpCodes["RequestTimeout"] = 408] = "RequestTimeout";
     HttpCodes[HttpCodes["Conflict"] = 409] = "Conflict";
     HttpCodes[HttpCodes["Gone"] = 410] = "Gone";
+    HttpCodes[HttpCodes["TooManyRequests"] = 429] = "TooManyRequests";
     HttpCodes[HttpCodes["InternalServerError"] = 500] = "InternalServerError";
     HttpCodes[HttpCodes["NotImplemented"] = 501] = "NotImplemented";
     HttpCodes[HttpCodes["BadGateway"] = 502] = "BadGateway";
     HttpCodes[HttpCodes["ServiceUnavailable"] = 503] = "ServiceUnavailable";
     HttpCodes[HttpCodes["GatewayTimeout"] = 504] = "GatewayTimeout";
 })(HttpCodes = exports.HttpCodes || (exports.HttpCodes = {}));
+var Headers;
+(function (Headers) {
+    Headers["Accept"] = "accept";
+    Headers["ContentType"] = "content-type";
+})(Headers = exports.Headers || (exports.Headers = {}));
+var MediaTypes;
+(function (MediaTypes) {
+    MediaTypes["ApplicationJson"] = "application/json";
+})(MediaTypes = exports.MediaTypes || (exports.MediaTypes = {}));
 /**
  * Returns the proxy URL, depending upon the supplied url and proxy environment variables.
  * @param serverUrl  The server URL where the request will be sent. For example, https://api.github.com
@@ -7707,8 +7820,18 @@ function getProxyUrl(serverUrl) {
     return proxyUrl ? proxyUrl.href : '';
 }
 exports.getProxyUrl = getProxyUrl;
-const HttpRedirectCodes = [HttpCodes.MovedPermanently, HttpCodes.ResourceMoved, HttpCodes.SeeOther, HttpCodes.TemporaryRedirect, HttpCodes.PermanentRedirect];
-const HttpResponseRetryCodes = [HttpCodes.BadGateway, HttpCodes.ServiceUnavailable, HttpCodes.GatewayTimeout];
+const HttpRedirectCodes = [
+    HttpCodes.MovedPermanently,
+    HttpCodes.ResourceMoved,
+    HttpCodes.SeeOther,
+    HttpCodes.TemporaryRedirect,
+    HttpCodes.PermanentRedirect
+];
+const HttpResponseRetryCodes = [
+    HttpCodes.BadGateway,
+    HttpCodes.ServiceUnavailable,
+    HttpCodes.GatewayTimeout
+];
 const RetryableHttpVerbs = ['OPTIONS', 'GET', 'DELETE', 'HEAD'];
 const ExponentialBackoffCeiling = 10;
 const ExponentialBackoffTimeSlice = 5;
@@ -7800,22 +7923,29 @@ class HttpClient {
      * Gets a typed object from an endpoint
      * Be aware that not found returns a null.  Other errors (4xx, 5xx) reject the promise
      */
-    async getJson(requestUrl, additionalHeaders) {
+    async getJson(requestUrl, additionalHeaders = {}) {
+        additionalHeaders[Headers.Accept] = this._getExistingOrDefaultHeader(additionalHeaders, Headers.Accept, MediaTypes.ApplicationJson);
         let res = await this.get(requestUrl, additionalHeaders);
         return this._processResponse(res, this.requestOptions);
     }
-    async postJson(requestUrl, obj, additionalHeaders) {
+    async postJson(requestUrl, obj, additionalHeaders = {}) {
         let data = JSON.stringify(obj, null, 2);
+        additionalHeaders[Headers.Accept] = this._getExistingOrDefaultHeader(additionalHeaders, Headers.Accept, MediaTypes.ApplicationJson);
+        additionalHeaders[Headers.ContentType] = this._getExistingOrDefaultHeader(additionalHeaders, Headers.ContentType, MediaTypes.ApplicationJson);
         let res = await this.post(requestUrl, data, additionalHeaders);
         return this._processResponse(res, this.requestOptions);
     }
-    async putJson(requestUrl, obj, additionalHeaders) {
+    async putJson(requestUrl, obj, additionalHeaders = {}) {
         let data = JSON.stringify(obj, null, 2);
+        additionalHeaders[Headers.Accept] = this._getExistingOrDefaultHeader(additionalHeaders, Headers.Accept, MediaTypes.ApplicationJson);
+        additionalHeaders[Headers.ContentType] = this._getExistingOrDefaultHeader(additionalHeaders, Headers.ContentType, MediaTypes.ApplicationJson);
         let res = await this.put(requestUrl, data, additionalHeaders);
         return this._processResponse(res, this.requestOptions);
     }
-    async patchJson(requestUrl, obj, additionalHeaders) {
+    async patchJson(requestUrl, obj, additionalHeaders = {}) {
         let data = JSON.stringify(obj, null, 2);
+        additionalHeaders[Headers.Accept] = this._getExistingOrDefaultHeader(additionalHeaders, Headers.Accept, MediaTypes.ApplicationJson);
+        additionalHeaders[Headers.ContentType] = this._getExistingOrDefaultHeader(additionalHeaders, Headers.ContentType, MediaTypes.ApplicationJson);
         let res = await this.patch(requestUrl, data, additionalHeaders);
         return this._processResponse(res, this.requestOptions);
     }
@@ -7826,18 +7956,22 @@ class HttpClient {
      */
     async request(verb, requestUrl, data, headers) {
         if (this._disposed) {
-            throw new Error("Client has already been disposed.");
+            throw new Error('Client has already been disposed.');
         }
         let parsedUrl = url.parse(requestUrl);
         let info = this._prepareRequest(verb, parsedUrl, headers);
         // Only perform retries on reads since writes may not be idempotent.
-        let maxTries = (this._allowRetries && RetryableHttpVerbs.indexOf(verb) != -1) ? this._maxRetries + 1 : 1;
+        let maxTries = this._allowRetries && RetryableHttpVerbs.indexOf(verb) != -1
+            ? this._maxRetries + 1
+            : 1;
         let numTries = 0;
         let response;
         while (numTries < maxTries) {
             response = await this.requestRaw(info, data);
             // Check if it's an authentication challenge
-            if (response && response.message && response.message.statusCode === HttpCodes.Unauthorized) {
+            if (response &&
+                response.message &&
+                response.message.statusCode === HttpCodes.Unauthorized) {
                 let authenticationHandler;
                 for (let i = 0; i < this.handlers.length; i++) {
                     if (this.handlers[i].canHandleAuthentication(response)) {
@@ -7855,21 +7989,32 @@ class HttpClient {
                 }
             }
             let redirectsRemaining = this._maxRedirects;
-            while (HttpRedirectCodes.indexOf(response.message.statusCode) != -1
-                && this._allowRedirects
-                && redirectsRemaining > 0) {
-                const redirectUrl = response.message.headers["location"];
+            while (HttpRedirectCodes.indexOf(response.message.statusCode) != -1 &&
+                this._allowRedirects &&
+                redirectsRemaining > 0) {
+                const redirectUrl = response.message.headers['location'];
                 if (!redirectUrl) {
                     // if there's no location to redirect to, we won't
                     break;
                 }
                 let parsedRedirectUrl = url.parse(redirectUrl);
-                if (parsedUrl.protocol == 'https:' && parsedUrl.protocol != parsedRedirectUrl.protocol && !this._allowRedirectDowngrade) {
-                    throw new Error("Redirect from HTTPS to HTTP protocol. This downgrade is not allowed for security reasons. If you want to allow this behavior, set the allowRedirectDowngrade option to true.");
+                if (parsedUrl.protocol == 'https:' &&
+                    parsedUrl.protocol != parsedRedirectUrl.protocol &&
+                    !this._allowRedirectDowngrade) {
+                    throw new Error('Redirect from HTTPS to HTTP protocol. This downgrade is not allowed for security reasons. If you want to allow this behavior, set the allowRedirectDowngrade option to true.');
                 }
                 // we need to finish reading the response before reassigning response
                 // which will leak the open socket.
                 await response.readBody();
+                // strip authorization header if redirected to a different hostname
+                if (parsedRedirectUrl.hostname !== parsedUrl.hostname) {
+                    for (let header in headers) {
+                        // header names are case insensitive
+                        if (header.toLowerCase() === 'authorization') {
+                            delete headers[header];
+                        }
+                    }
+                }
                 // let's make the request with the new redirectUrl
                 info = this._prepareRequest(verb, parsedRedirectUrl, headers);
                 response = await this.requestRaw(info, data);
@@ -7920,8 +8065,8 @@ class HttpClient {
      */
     requestRawWithCallback(info, data, onResult) {
         let socket;
-        if (typeof (data) === 'string') {
-            info.options.headers["Content-Length"] = Buffer.byteLength(data, 'utf8');
+        if (typeof data === 'string') {
+            info.options.headers['Content-Length'] = Buffer.byteLength(data, 'utf8');
         }
         let callbackCalled = false;
         let handleResult = (err, res) => {
@@ -7934,7 +8079,7 @@ class HttpClient {
             let res = new HttpClientResponse(msg);
             handleResult(null, res);
         });
-        req.on('socket', (sock) => {
+        req.on('socket', sock => {
             socket = sock;
         });
         // If we ever get disconnected, we want the socket to timeout eventually
@@ -7949,10 +8094,10 @@ class HttpClient {
             // res should have headers
             handleResult(err, null);
         });
-        if (data && typeof (data) === 'string') {
+        if (data && typeof data === 'string') {
             req.write(data, 'utf8');
         }
-        if (data && typeof (data) !== 'string') {
+        if (data && typeof data !== 'string') {
             data.on('close', function () {
                 req.end();
             });
@@ -7979,28 +8124,39 @@ class HttpClient {
         const defaultPort = usingSsl ? 443 : 80;
         info.options = {};
         info.options.host = info.parsedUrl.hostname;
-        info.options.port = info.parsedUrl.port ? parseInt(info.parsedUrl.port) : defaultPort;
-        info.options.path = (info.parsedUrl.pathname || '') + (info.parsedUrl.search || '');
+        info.options.port = info.parsedUrl.port
+            ? parseInt(info.parsedUrl.port)
+            : defaultPort;
+        info.options.path =
+            (info.parsedUrl.pathname || '') + (info.parsedUrl.search || '');
         info.options.method = method;
         info.options.headers = this._mergeHeaders(headers);
         if (this.userAgent != null) {
-            info.options.headers["user-agent"] = this.userAgent;
+            info.options.headers['user-agent'] = this.userAgent;
         }
         info.options.agent = this._getAgent(info.parsedUrl);
         // gives handlers an opportunity to participate
         if (this.handlers) {
-            this.handlers.forEach((handler) => {
+            this.handlers.forEach(handler => {
                 handler.prepareRequest(info.options);
             });
         }
         return info;
     }
     _mergeHeaders(headers) {
-        const lowercaseKeys = obj => Object.keys(obj).reduce((c, k) => (c[k.toLowerCase()] = obj[k], c), {});
+        const lowercaseKeys = obj => Object.keys(obj).reduce((c, k) => ((c[k.toLowerCase()] = obj[k]), c), {});
         if (this.requestOptions && this.requestOptions.headers) {
             return Object.assign({}, lowercaseKeys(this.requestOptions.headers), lowercaseKeys(headers));
         }
         return lowercaseKeys(headers || {});
+    }
+    _getExistingOrDefaultHeader(additionalHeaders, header, _default) {
+        const lowercaseKeys = obj => Object.keys(obj).reduce((c, k) => ((c[k.toLowerCase()] = obj[k]), c), {});
+        let clientHeader;
+        if (this.requestOptions && this.requestOptions.headers) {
+            clientHeader = lowercaseKeys(this.requestOptions.headers)[header];
+        }
+        return additionalHeaders[header] || clientHeader || _default;
     }
     _getAgent(parsedUrl) {
         let agent;
@@ -8033,7 +8189,7 @@ class HttpClient {
                     proxyAuth: proxyUrl.auth,
                     host: proxyUrl.hostname,
                     port: proxyUrl.port
-                },
+                }
             };
             let tunnelAgent;
             const overHttps = proxyUrl.protocol === 'https:';
@@ -8060,7 +8216,9 @@ class HttpClient {
             // we don't want to set NODE_TLS_REJECT_UNAUTHORIZED=0 since that will affect request for entire process
             // http.RequestOptions doesn't expose a way to modify RequestOptions.agent.options
             // we have to cast it to any and change it directly
-            agent.options = Object.assign(agent.options || {}, { rejectUnauthorized: false });
+            agent.options = Object.assign(agent.options || {}, {
+                rejectUnauthorized: false
+            });
         }
         return agent;
     }
@@ -8121,7 +8279,7 @@ class HttpClient {
                     msg = contents;
                 }
                 else {
-                    msg = "Failed request: (" + statusCode + ")";
+                    msg = 'Failed request: (' + statusCode + ')';
                 }
                 let err = new Error(msg);
                 // attach statusCode and body obj (if available) to the error object
@@ -28666,12 +28824,10 @@ function getProxyUrl(reqUrl) {
     }
     let proxyVar;
     if (usingSsl) {
-        proxyVar = process.env["https_proxy"] ||
-            process.env["HTTPS_PROXY"];
+        proxyVar = process.env['https_proxy'] || process.env['HTTPS_PROXY'];
     }
     else {
-        proxyVar = process.env["http_proxy"] ||
-            process.env["HTTP_PROXY"];
+        proxyVar = process.env['http_proxy'] || process.env['HTTP_PROXY'];
     }
     if (proxyVar) {
         proxyUrl = url.parse(proxyVar);
@@ -28683,7 +28839,7 @@ function checkBypass(reqUrl) {
     if (!reqUrl.hostname) {
         return false;
     }
-    let noProxy = process.env["no_proxy"] || process.env["NO_PROXY"] || '';
+    let noProxy = process.env['no_proxy'] || process.env['NO_PROXY'] || '';
     if (!noProxy) {
         return false;
     }
@@ -28704,7 +28860,10 @@ function checkBypass(reqUrl) {
         upperReqHosts.push(`${upperReqHosts[0]}:${reqPort}`);
     }
     // Compare request host against noproxy
-    for (let upperNoProxyItem of noProxy.split(',').map(x => x.trim().toUpperCase()).filter(x => x)) {
+    for (let upperNoProxyItem of noProxy
+        .split(',')
+        .map(x => x.trim().toUpperCase())
+        .filter(x => x)) {
         if (upperReqHosts.some(x => x === upperNoProxyItem)) {
             return true;
         }
