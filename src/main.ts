@@ -1,15 +1,65 @@
 import * as github from '@actions/github'
 import * as core from '@actions/core'
-import Octokit from '@octokit/rest'
+import * as rest from '@octokit/rest'
 import * as treemap from 'jstreemap'
 
-function createListRunsQueryForAllRuns(
+const CANCELLABLE_RUNS = ['push', 'pull_request', 'workflow_run', 'schedule']
+
+enum CancelMode {
+  DUPLICATES = 'duplicates',
+  SELF = 'self',
+  FAILED_JOBS = 'failedJobs',
+  NAMED_JOBS = 'namedJobs'
+}
+
+function createListRunsQueryOtherRuns(
   octokit: github.GitHub,
   owner: string,
   repo: string,
-  workflowId: string,
   status: string,
-): Octokit.RequestOptions {
+  workflowId: number,
+  headBranch: string,
+  eventName: string
+): rest.RequestOptions {
+  const request = {
+    owner,
+    repo,
+    // eslint-disable-next-line @typescript-eslint/camelcase
+    workflow_id: workflowId,
+    status,
+    branch: headBranch,
+    event: eventName
+  }
+  return octokit.actions.listWorkflowRuns.endpoint.merge(request)
+}
+
+function createListRunsQueryMyOwnRun(
+  octokit: github.GitHub,
+  owner: string,
+  repo: string,
+  status: string,
+  workflowId: number,
+  runId: number
+): rest.RequestOptions {
+  const request = {
+    owner,
+    repo,
+    // eslint-disable-next-line @typescript-eslint/camelcase
+    workflow_id: workflowId,
+    status,
+    // eslint-disable-next-line @typescript-eslint/camelcase
+    run_id: runId.toString()
+  }
+  return octokit.actions.listWorkflowRuns.endpoint.merge(request)
+}
+
+function createListRunsQueryAllRuns(
+  octokit: github.GitHub,
+  owner: string,
+  repo: string,
+  status: string,
+  workflowId: number
+): rest.RequestOptions {
   const request = {
     owner,
     repo,
@@ -20,243 +70,358 @@ function createListRunsQueryForAllRuns(
   return octokit.actions.listWorkflowRuns.endpoint.merge(request)
 }
 
-function createListRunsQueryForSelfRun(
-    octokit: github.GitHub,
-    owner: string,
-    repo: string,
-    workflowId: string,
-    status: string,
-    branch: string,
-    eventName: string
-): Octokit.RequestOptions {
-  const request = {
-    owner,
-    repo,
-    // eslint-disable-next-line @typescript-eslint/camelcase
-    workflow_id: workflowId,
-    status,
-    branch,
-    event: eventName
-  }
-  return octokit.actions.listWorkflowRuns.endpoint.merge(request)
-}
-
 function createJobsForWorkflowRunQuery(
-    octokit: github.GitHub,
-    owner: string,
-    repo: string,
-    runId: number,
-): Octokit.RequestOptions {
+  octokit: github.GitHub,
+  owner: string,
+  repo: string,
+  runId: number
+): rest.RequestOptions {
   const request = {
     owner,
     repo,
     // eslint-disable-next-line @typescript-eslint/camelcase
-    run_id: runId,
+    run_id: runId
   }
   return octokit.actions.listJobsForWorkflowRun.endpoint.merge(request)
 }
 
-async function cancelOnFailFastJobsFailed(
-    octokit: github.GitHub,
-    owner: string,
-    repo: string,
-    runId: number,
-    head: string,
-    failFastJobNames: string[]
-): Promise<void> {
-  const listJobs = createJobsForWorkflowRunQuery(
-      octokit,
-      owner,
-      repo,
-      runId,
-  )
-  core.info(`Cancelling runId ${runId} in case one of the ${failFastJobNames} failed`)
+function matchInArray(s: string, regexps: string[]): boolean {
+  for (const regexp of regexps) {
+    if (s.match(regexp)) {
+      return true
+    }
+  }
+  return false
+}
+
+async function jobsMatchingNames(
+  octokit: github.GitHub,
+  owner: string,
+  repo: string,
+  runId: number,
+  jobNameRegexps: string[],
+  checkIfFailed: boolean
+): Promise<boolean> {
+  const listJobs = createJobsForWorkflowRunQuery(octokit, owner, repo, runId)
+  if (checkIfFailed) {
+    core.info(
+      `\nChecking if runId ${runId} has job names matching any of the ${jobNameRegexps} that failed\n`
+    )
+  } else {
+    core.info(
+      `\nChecking if runId ${runId} has job names matching any of the ${jobNameRegexps}\n`
+    )
+  }
   for await (const item of octokit.paginate.iterator(listJobs)) {
     for (const job of item.data.jobs) {
-      core.info(`The job name: ${job.name}, Conclusion: ${job.conclusion}`)
-      if (job.conclusion == 'failure' &&
-          failFastJobNames.some(jobNameRegexp => job.name.match(jobNameRegexp) )) {
-        core.info(`Job ${job.name} has failed and it matches one of the ${failFastJobNames} regexps`)
-        core.info(`Cancelling the workflow run: ${runId}, head: ${head}`)
-        await cancelRun(octokit, owner, repo, runId)
-        return
+      core.info(`    The job name: ${job.name}, Conclusion: ${job.conclusion}`)
+      if (matchInArray(job.name, jobNameRegexps)) {
+        if (checkIfFailed) {
+          // Only fail the build if one of the matching jobs fail
+          if (job.conclusion === 'failure') {
+            core.info(
+              `    The Job ${job.name} matches one of the ${jobNameRegexps} regexps and it failed. Cancelling run.`
+            )
+            return true
+          } else {
+            core.info(
+              `    The Job ${job.name} matches one of the ${jobNameRegexps} regexps but it did not fail. So far, so good.`
+            )
+          }
+        } else {
+          // Fail the build if any of the job names match
+          core.info(
+            `    The Job ${job.name} matches one of the ${jobNameRegexps} regexps. Cancelling run.`
+          )
+          return true
+        }
       }
     }
   }
+  return false
 }
 
-async function getSelfWorkflowId(
-    octokit: github.GitHub,
-    selfRunId: string,
-    owner: string,
-    repo: string) {
-  let workflowId: string
+async function getWorkflowId(
+  octokit: github.GitHub,
+  runId: number,
+  owner: string,
+  repo: string
+): Promise<number> {
   const reply = await octokit.actions.getWorkflowRun({
     owner,
     repo,
     // eslint-disable-next-line @typescript-eslint/camelcase
-    run_id: Number.parseInt(selfRunId)
+    run_id: runId
   })
-  workflowId = reply.data.workflow_url.split('/').pop() || ''
-  if (!(workflowId.length > 0)) {
+  core.info(`The source run ${runId} is in ${reply.data.workflow_url} workflow`)
+  const workflowIdString = reply.data.workflow_url.split('/').pop() || ''
+  if (!(workflowIdString.length > 0)) {
     throw new Error('Could not resolve workflow')
   }
-  return workflowId
+  return parseInt(workflowIdString)
 }
 
-async function getSortedWorkflowRuns(
-    octokit: github.GitHub,
-    createListRunQuery: CallableFunction,
-  ): Promise<treemap.TreeMap<number, Octokit.ActionsListWorkflowRunsResponseWorkflowRunsItem>>{
-  const sortedWorkflowRuns = new treemap.TreeMap<number, any>()
-  for (const status of ['queued', 'in_progress']) {
+async function getWorkflowRuns(
+  octokit: github.GitHub,
+  statusValues: string[],
+  cancelMode: CancelMode,
+  createListRunQuery: CallableFunction
+): Promise<
+  treemap.TreeMap<number, rest.ActionsListWorkflowRunsResponseWorkflowRunsItem>
+> {
+  const workflowRuns = new treemap.TreeMap<
+    number,
+    rest.ActionsListWorkflowRunsResponseWorkflowRunsItem
+  >()
+  for (const status of statusValues) {
     const listRuns = await createListRunQuery(status)
     for await (const item of octokit.paginate.iterator(listRuns)) {
       // There is some sort of bug where the pagination URLs point to a
       // different endpoint URL which trips up the resulting representation
       // In that case, fallback to the actual REST 'workflow_runs' property
       const elements =
-          item.data.length === undefined ? item.data.workflow_runs : item.data
-
+        item.data.length === undefined ? item.data.workflow_runs : item.data
       for (const element of elements) {
-        sortedWorkflowRuns.set(element.run_number, element)
+        workflowRuns.set(element.run_number, element)
       }
     }
   }
-  core.info(`Found runs: ${Array.from(sortedWorkflowRuns.backward()).map(t => t[0])}`)
-  return sortedWorkflowRuns
+  core.info(`\nFound runs: ${Array.from(workflowRuns).map(t => t[0])}\n`)
+  return workflowRuns
 }
 
-function shouldRunBeSkipped(runItem: Octokit.ActionsListWorkflowRunsResponseWorkflowRunsItem) {
+async function shouldBeCancelled(
+  octokit: github.GitHub,
+  owner: string,
+  repo: string,
+  runItem: rest.ActionsListWorkflowRunsResponseWorkflowRunsItem,
+  headRepo: string,
+  cancelMode: CancelMode,
+  sourceRunId: number,
+  jobNamesRegexps: string[]
+): Promise<boolean> {
   if ('completed' === runItem.status.toString()) {
-    core.info(`Skip completed run: ${runItem.id}`)
-    return true
+    core.info(`\nThe run ${runItem.id} is completed. Not cancelling it.\n`)
+    return false
   }
-
-  if (!['push', 'pull_request'].includes(runItem.event.toString())) {
-    core.info(`Skip run: ${runItem.id} as it is neither push nor pull_request (${runItem.event}`)
-    return true
+  if (!CANCELLABLE_RUNS.includes(runItem.event.toString())) {
+    core.info(
+      `\nThe run ${runItem.id} is (${runItem.event} event - not in ${CANCELLABLE_RUNS}). Not cancelling it.\n`
+    )
+    return false
   }
-  return false
+  if (cancelMode === CancelMode.FAILED_JOBS) {
+    // Cancel all jobs that have failed jobs (no matter when started)
+    if (
+      await jobsMatchingNames(
+        octokit,
+        owner,
+        repo,
+        runItem.id,
+        jobNamesRegexps,
+        true
+      )
+    ) {
+      core.info(
+        `\nSome matching named jobs failed in ${runItem.id} . Cancelling it.\n`
+      )
+      return true
+    } else {
+      core.info(
+        `\nNone of the matching jobs failed in ${runItem.id}. Not cancelling it.\n`
+      )
+      return false
+    }
+  } else if (cancelMode === CancelMode.NAMED_JOBS) {
+    // Cancel all jobs that have failed jobs (no matter when started)
+    if (
+      await jobsMatchingNames(
+        octokit,
+        owner,
+        repo,
+        runItem.id,
+        jobNamesRegexps,
+        false
+      )
+    ) {
+      core.info(
+        `\nSome jobs have matching names in ${runItem.id} . Cancelling it.\n`
+      )
+      return true
+    } else {
+      core.info(
+        `\nNone of the jobs match name in ${runItem.id}. Not cancelling it.\n`
+      )
+      return false
+    }
+  } else if (cancelMode === CancelMode.SELF) {
+    if (runItem.id === sourceRunId) {
+      core.info(`\nCancelling the "source" run: ${runItem.id}.\n`)
+      return true
+    } else {
+      return false
+    }
+  } else if (cancelMode === CancelMode.DUPLICATES) {
+    const runHeadRepo = runItem.head_repository.full_name
+    if (headRepo !== undefined && runHeadRepo !== headRepo) {
+      core.info(
+        `\nThe run ${runItem.id} is from a different ` +
+          `repo: ${runHeadRepo} (expected ${headRepo}). Not cancelling it\n`
+      )
+      return false
+    }
+    if (runItem.id === sourceRunId) {
+      core.info(
+        `\nThis is my own run ${runItem.id}. I have self-preservation mechanism. Not cancelling myself!\n`
+      )
+      return false
+    } else if (runItem.id > sourceRunId) {
+      core.info(
+        `\nThe run ${runItem.id} is started later than mt own run ${sourceRunId}. Not cancelling it\n`
+      )
+      return false
+    } else {
+      core.info(`\nCancelling duplicate of my own run: ${runItem.id}.\n`)
+      return true
+    }
+  } else {
+    throw Error(
+      `\nWrong cancel mode ${cancelMode}! This should never happen.\n`
+    )
+  }
 }
 
 async function cancelRun(
-    octokit: github.GitHub,
-    owner: string,
-    repo: string,
-    id: number,
+  octokit: github.GitHub,
+  owner: string,
+  repo: string,
+  runId: number
 ): Promise<void> {
   let reply
   try {
     reply = await octokit.actions.cancelWorkflowRun({
-      owner: owner,
-      repo: repo,
+      owner,
+      repo,
       // eslint-disable-next-line @typescript-eslint/camelcase
-      run_id: id
+      run_id: runId
     })
-    core.info(`Previous run (id ${id}) cancelled, status = ${reply.status}`)
+    core.info(`\nThe run ${runId} cancelled, status = ${reply.status}\n`)
   } catch (error) {
-    core.info(
-        `[warn] Could not cancel run (id ${id}): [${error.status}] ${error.message}`
+    core.warning(
+      `\nCould not cancel run ${runId}: [${error.status}] ${error.message}\n`
     )
   }
 }
 
-
-// Kills past runs for my own workflow.
-async function findAndCancelPastRunsForSelf(
-    octokit: github.GitHub,
-    selfRunId: string,
-    owner: string,
-    repo: string,
-    branch: string,
-    eventName: string,
-): Promise<void> {
-  core.info(`findAndCancelPastRunsForSelf:  ${selfRunId}, ${owner}, ${repo}, ${branch}, ${eventName}`)
-  const workflowId = await getSelfWorkflowId(octokit, selfRunId, owner, repo)
-  core.info(`My own workflow ID is: ${workflowId}`)
-  const sortedWorkflowRuns = await getSortedWorkflowRuns(
-      octokit,function(status: string) {
-        return createListRunsQueryForSelfRun(octokit, owner, repo, workflowId,
-            status, branch, eventName )
-      }
-  )
-  let matched = false
-  const headsToRunIdMap = new Map<string, number>()
-  for (const [key, runItem] of sortedWorkflowRuns.backward()) {
-    core.info(
-      `Run number: ${key}, RunId: ${runItem.id}, URL: ${runItem.workflow_url}. Status ${runItem.status}`
-    )
-    if (!matched) {
-      if (runItem.id.toString() !== selfRunId) {
-        core.info(`Skip run ${runItem.id} as it was started before my own id: ${selfRunId}`)
-        continue
-      }
-      matched = true
-      core.info(`Matched ${selfRunId}. Reached my own ID, now looping through all remaining runs/`)
-      core.info("I will cancel all except the first for each 'head' available")
-    }
-    if (shouldRunBeSkipped(runItem)){
-      continue
-    }
-    // Head of the run
-    const head = `${runItem.head_repository.full_name}/${runItem.head_branch}`
-    if (!headsToRunIdMap.has(head)) {
-      core.info(`First run for the head: ${head}. Skipping it. Next ones with same head will be cancelled.`)
-      headsToRunIdMap.set(head, runItem.id)
-      continue
-    }
-    core.info(`Cancelling run: ${runItem.id}, head ${head}.`)
-    core.info(`There is a later run with same head: ${headsToRunIdMap.get(head)}`)
-    await cancelRun(octokit, owner, repo, runItem.id)
-  }
-}
-
-// Kills past runs for my own workflow.
-async function findAndCancelPastRunsForSchedule(
-    octokit: github.GitHub,
-    workflowId: string,
-    owner: string,
-    repo: string,
-    failFastJobNames?: string[],
-): Promise<void> {
-  core.info(`findAndCancelPastRunsForSchedule: ${owner}, ${workflowId}, ${repo}`)
-
-  const sortedWorkflowRuns = await getSortedWorkflowRuns(
-      octokit,function(status: string) {
-        return createListRunsQueryForAllRuns(octokit, owner, repo, workflowId, status)
-      }
-  )
-
-  const headsToRunIdMap = new Map<string, number>()
-  for (const [key, runItem] of sortedWorkflowRuns.backward()) {
-    core.info(
-        ` ${key} ${runItem.id} : ${runItem.workflow_url} : ${runItem.status} : ${runItem.run_number}`
-    )
-
-    if (shouldRunBeSkipped(runItem)){
-      continue
-    }
-
-    // Head of the run
-    const head = `${runItem.head_repository.full_name}/${runItem.head_branch}`
-    if (!headsToRunIdMap.has(head)) {
-      core.info(`First run for the head: ${head}. Next runs with the same head will be cancelled.`)
-      headsToRunIdMap.set(head, runItem.id)
-      if (failFastJobNames !== undefined) {
-        core.info("Checking if the head run failed in specified jobs")
-        await cancelOnFailFastJobsFailed(octokit, owner, repo, runItem.id, head, failFastJobNames)
+async function findAndCancelRuns(
+  octokit: github.GitHub,
+  sourceWorkflowId: number,
+  sourceRunId: number,
+  owner: string,
+  repo: string,
+  headRepo: string,
+  headBranch: string,
+  sourceEventName: string,
+  cancelMode: CancelMode,
+  jobNameRegexps: string[]
+): Promise<number[]> {
+  const statusValues = ['queued', 'in_progress']
+  const workflowRuns = await getWorkflowRuns(
+    octokit,
+    statusValues,
+    cancelMode,
+    function(status: string) {
+      if (cancelMode === CancelMode.SELF) {
+        core.info(
+          `\nFinding runs for my own run: Owner: ${owner}, Repo: ${repo}, ` +
+            `Workflow ID:${sourceWorkflowId}, Source Run id: ${sourceRunId}\n`
+        )
+        return createListRunsQueryMyOwnRun(
+          octokit,
+          owner,
+          repo,
+          status,
+          sourceWorkflowId,
+          sourceRunId
+        )
+      } else if (
+        cancelMode === CancelMode.FAILED_JOBS ||
+        cancelMode === CancelMode.NAMED_JOBS
+      ) {
+        core.info(
+          `\nFinding runs for all runs: Owner: ${owner}, Repo: ${repo}, Status: ${status} ` +
+            `Workflow ID:${sourceWorkflowId}\n`
+        )
+        return createListRunsQueryAllRuns(
+          octokit,
+          owner,
+          repo,
+          status,
+          sourceWorkflowId
+        )
+      } else if (cancelMode === CancelMode.DUPLICATES) {
+        core.info(
+          `\nFinding duplicate runs: Owner: ${owner}, Repo: ${repo}, Status: ${status} ` +
+            `Workflow ID:${sourceWorkflowId}, Head Branch: ${headBranch},` +
+            `Event name: ${sourceEventName}\n`
+        )
+        return createListRunsQueryOtherRuns(
+          octokit,
+          owner,
+          repo,
+          status,
+          sourceWorkflowId,
+          headBranch,
+          sourceEventName
+        )
       } else {
-        core.info("Skipping the head run.")
+        throw Error(
+          `\nWrong cancel mode ${cancelMode}! This should never happen.\n`
+        )
       }
-      continue
     }
-    core.info(`Cancelling run: ${runItem.id}, head ${head}.`)
-    core.info(`There is a later run with same head: ${headsToRunIdMap.get(head)}`)
-    await cancelRun(octokit, owner, repo, runItem.id)
+  )
+  const idsToCancel: number[] = []
+  for (const [key, runItem] of workflowRuns) {
+    core.info(
+      `\nChecking run number: ${key}, RunId: ${runItem.id}, Url: ${runItem.url}. Status ${runItem.status}\n`
+    )
+    if (
+      await shouldBeCancelled(
+        octokit,
+        owner,
+        repo,
+        runItem,
+        headRepo,
+        cancelMode,
+        sourceRunId,
+        jobNameRegexps
+      )
+    ) {
+      idsToCancel.push(runItem.id)
+    }
   }
+  // Sort from smallest number - this way we always kill current one at the end (if we kill it at all)
+  const sortedIdsToCancel = idsToCancel.sort((id1, id2) => id1 - id2)
+  if (sortedIdsToCancel.length > 0) {
+    core.info(
+      '\n######  Cancelling runs starting from the oldest  ##########\n' +
+        `\n     Runs to cancel: ${sortedIdsToCancel.length}\n`
+    )
+    for (const runId of sortedIdsToCancel) {
+      core.info(`\nCancelling run: ${runId}.\n`)
+      await cancelRun(octokit, owner, repo, runId)
+    }
+    core.info(
+      '\n######  Finished cancelling runs                  ##########\n'
+    )
+  } else {
+    core.info(
+      '\n######  There are no runs to cancel!              ##########\n'
+    )
+  }
+  return sortedIdsToCancel
 }
-
 
 function getRequiredEnv(key: string): string {
   const value = process.env[key]
@@ -267,70 +432,175 @@ function getRequiredEnv(key: string): string {
   return value
 }
 
-
-async function runScheduledRun(octokit: github.GitHub, owner: string, repo: string) {
-  const workflowId = core.getInput('workflow')
-  if (!(workflowId.length > 0)) {
-    core.setFailed('Workflow must be specified for schedule event type')
-    return
-  }
-  const failFastJobNames =
-      JSON.parse(core.getInput('failFastJobNames'))
-  if (failFastJobNames !== undefined) {
-    core.info(`Checking also if last run failed in one of the jobs: ${failFastJobNames}`)
-  }
-
-  await findAndCancelPastRunsForSchedule(octokit, workflowId, owner, repo, failFastJobNames)
-  return
+async function getOrigin(
+  octokit: github.GitHub,
+  runId: number,
+  owner: string,
+  repo: string
+): Promise<[string, string, string, string]> {
+  const reply = await octokit.actions.getWorkflowRun({
+    owner,
+    repo,
+    // eslint-disable-next-line @typescript-eslint/camelcase
+    run_id: runId
+  })
+  const sourceRun = reply.data
+  core.info(
+    `Source workflow: Head repo: ${sourceRun.head_repository.full_name}, ` +
+      `Head branch: ${sourceRun.head_branch} ` +
+      `Event: ${sourceRun.event}, Head sha: ${sourceRun.head_sha}, url: ${sourceRun.url}`
+  )
+  return [
+    reply.data.head_repository.full_name,
+    reply.data.head_branch,
+    reply.data.event,
+    reply.data.head_sha
+  ]
 }
 
-async function runRegularRun(
-    octokit: github.GitHub,
-    selfRunId: string,
-    owner:string,
-    repo:string,
-    eventName: string) {
-  const pullRequest = 'pull_request' === eventName
-  const branchPrefix = 'refs/heads/'
-  const tagPrefix = 'refs/tags/'
-
-  let branch = getRequiredEnv(pullRequest ? 'GITHUB_HEAD_REF' : 'GITHUB_REF')
-  if (!pullRequest && !branch.startsWith(branchPrefix)) {
-    if (branch.startsWith(tagPrefix)) {
-      core.info(`Skipping tag build`)
-      return
-    }
-    core.setFailed(`${branch} was not an expected branch ref (refs/heads/).`)
-    return
-  }
-  branch = branch.replace(branchPrefix, '')
-
+async function performCancelJob(
+  octokit: github.GitHub,
+  sourceWorkflowId: number,
+  sourceRunId: number,
+  owner: string,
+  repo: string,
+  headRepo: string,
+  headBranch: string,
+  sourceEventName: string,
+  cancelMode: CancelMode,
+  jobNameRegexps: string[]
+): Promise<number[]> {
   core.info(
-      `Branch is ${branch}, repo is ${repo}, and owner is ${owner}, and id is ${selfRunId}`
+    '\n###################################################################################\n'
+  )
+  core.info(
+    `All parameters: owner: ${owner}, repo: ${repo}, run id: ${sourceRunId}, ` +
+      `head repo ${headRepo}, headBranch: ${headBranch}, ` +
+      `sourceEventName: ${sourceEventName}, cancelMode: ${cancelMode}, jobNames: ${jobNameRegexps}`
+  )
+  core.info(
+    '\n###################################################################################\n'
+  )
+  if (cancelMode === CancelMode.SELF) {
+    core.info(
+      `# Cancelling source run: ${sourceRunId} for workflow ${sourceWorkflowId}.`
+    )
+  } else if (cancelMode === CancelMode.FAILED_JOBS) {
+    core.info(
+      `# Cancel all runs for workflow ${sourceWorkflowId} where job names matching ${jobNameRegexps} failed.`
+    )
+  } else if (cancelMode === CancelMode.NAMED_JOBS) {
+    core.info(
+      `# Cancel all runs for workflow ${sourceWorkflowId} have job names matching ${jobNameRegexps}.`
+    )
+  } else if (cancelMode === CancelMode.DUPLICATES) {
+    core.info(
+      `# Cancel duplicate runs started before ${sourceRunId} for workflow ${sourceWorkflowId}.`
+    )
+  } else {
+    throw Error(`Wrong cancel mode ${cancelMode}! This should never happen.`)
+  }
+  core.info(
+    '\n###################################################################################\n'
   )
 
-  await findAndCancelPastRunsForSelf(octokit, selfRunId, owner, repo, branch, eventName)
-
+  return await findAndCancelRuns(
+    octokit,
+    sourceWorkflowId,
+    sourceRunId,
+    owner,
+    repo,
+    headRepo,
+    headBranch,
+    sourceEventName,
+    cancelMode,
+    jobNameRegexps
+  )
 }
 
 async function run(): Promise<void> {
-  const token = core.getInput('token')
+  const token = core.getInput('token', {required: true})
   const octokit = new github.GitHub(token)
-  core.info(`Starting checking for workflows to cancel`)
-  const selfRunId = getRequiredEnv('GITHUB_RUN_ID')
+  const selfRunId = parseInt(getRequiredEnv('GITHUB_RUN_ID'))
   const repository = getRequiredEnv('GITHUB_REPOSITORY')
   const eventName = getRequiredEnv('GITHUB_EVENT_NAME')
-
+  const cancelMode =
+    (core.getInput('cancelMode') as CancelMode) || CancelMode.DUPLICATES
+  const sourceRunId = parseInt(core.getInput('sourceRunId')) || selfRunId
+  const jobNameRegexpsString = core.getInput('jobNameRegexps')
+  const jobNameRegexps = jobNameRegexpsString
+    ? JSON.parse(jobNameRegexpsString)
+    : []
   const [owner, repo] = repository.split('/')
 
-  if ('schedule' === eventName) {
-    await runScheduledRun(octokit, owner, repo);
-  } else if (!['push', 'pull_request'].includes(eventName)) {
-    core.info('Skipping unsupported event')
-    return
+  core.info(
+    `\nGetting workflow id for source run id: ${sourceRunId}, owner: ${owner}, repo: ${repo}\n`
+  )
+  const sourceWorkflowId = await getWorkflowId(
+    octokit,
+    sourceRunId,
+    owner,
+    repo
+  )
+  core.info(
+    `Repository: ${repository}, Owner: ${owner}, Repo: ${repo}, ` +
+      `Event name: ${eventName}, CancelMode: ${cancelMode}, ` +
+      `sourceWorkflowId: ${sourceWorkflowId}, sourceRunId: ${sourceRunId}, selfRunId: ${selfRunId}, ` +
+      `jobNames: ${jobNameRegexps}`
+  )
+
+  if (sourceRunId === selfRunId) {
+    core.info(`\nFinding runs for my own workflow ${sourceWorkflowId}\n`)
   } else {
-    await runRegularRun(octokit, selfRunId, owner, repo, eventName)
+    core.info(`\nFinding runs for source workflow ${sourceWorkflowId}\n`)
   }
+
+  if (
+    jobNameRegexps.length > 0 &&
+    [CancelMode.DUPLICATES, CancelMode.SELF].includes(cancelMode)
+  ) {
+    throw Error(`You cannot specify jobNames on ${cancelMode} cancelMode.`)
+  }
+
+  if (eventName === 'workflow_run' && sourceRunId === selfRunId) {
+    if (cancelMode === CancelMode.DUPLICATES)
+      throw Error(
+        `You cannot run "workflow_run" in ${cancelMode} cancelMode without "sourceId" input.` +
+          'It will likely not work as you intended - it will cancel runs which are not duplicates!' +
+          'See the docs for details.'
+      )
+  }
+
+  const [headRepo, headBranch, sourceEventName, headSha] = await getOrigin(
+    octokit,
+    sourceRunId,
+    owner,
+    repo
+  )
+
+  core.setOutput('sourceHeadRepo', headRepo)
+  core.setOutput('sourceHeadBranch', headBranch)
+  core.setOutput('sourceHeadSha', headSha)
+  core.setOutput('sourceEvent', sourceEventName)
+
+  const cancelledRuns = await performCancelJob(
+    octokit,
+    sourceWorkflowId,
+    sourceRunId,
+    owner,
+    repo,
+    headRepo,
+    headBranch,
+    sourceEventName,
+    cancelMode,
+    jobNameRegexps
+  )
+
+  core.setOutput('cancelledRuns', JSON.stringify(cancelledRuns))
 }
 
-run().then(() => core.info("Cancel complete")).catch(e => core.setFailed(e.message))
+run()
+  .then(() =>
+    core.info('\n############### Cancel complete ##################\n')
+  )
+  .catch(e => core.setFailed(e.message))

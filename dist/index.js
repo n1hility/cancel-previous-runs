@@ -34,7 +34,7 @@ module.exports =
 /******/ 	// the startup function
 /******/ 	function startup() {
 /******/ 		// Load entry module and return exports
-/******/ 		return __webpack_require__(198);
+/******/ 		return __webpack_require__(131);
 /******/ 	};
 /******/
 /******/ 	// run startup
@@ -1434,6 +1434,426 @@ module.exports = require("child_process");
 
 /***/ }),
 
+/***/ 131:
+/***/ (function(__unusedmodule, exports, __webpack_require__) {
+
+"use strict";
+
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
+var __asyncValues = (this && this.__asyncValues) || function (o) {
+    if (!Symbol.asyncIterator) throw new TypeError("Symbol.asyncIterator is not defined.");
+    var m = o[Symbol.asyncIterator], i;
+    return m ? m.call(o) : (o = typeof __values === "function" ? __values(o) : o[Symbol.iterator](), i = {}, verb("next"), verb("throw"), verb("return"), i[Symbol.asyncIterator] = function () { return this; }, i);
+    function verb(n) { i[n] = o[n] && function (v) { return new Promise(function (resolve, reject) { v = o[n](v), settle(resolve, reject, v.done, v.value); }); }; }
+    function settle(resolve, reject, d, v) { Promise.resolve(v).then(function(v) { resolve({ value: v, done: d }); }, reject); }
+};
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (Object.hasOwnProperty.call(mod, k)) result[k] = mod[k];
+    result["default"] = mod;
+    return result;
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const github = __importStar(__webpack_require__(469));
+const core = __importStar(__webpack_require__(393));
+const treemap = __importStar(__webpack_require__(706));
+const CANCELLABLE_RUNS = ['push', 'pull_request', 'workflow_run', 'schedule'];
+var CancelMode;
+(function (CancelMode) {
+    CancelMode["DUPLICATES"] = "duplicates";
+    CancelMode["SELF"] = "self";
+    CancelMode["FAILED_JOBS"] = "failedJobs";
+    CancelMode["NAMED_JOBS"] = "namedJobs";
+})(CancelMode || (CancelMode = {}));
+function createListRunsQueryOtherRuns(octokit, owner, repo, status, workflowId, headBranch, eventName) {
+    const request = {
+        owner,
+        repo,
+        // eslint-disable-next-line @typescript-eslint/camelcase
+        workflow_id: workflowId,
+        status,
+        branch: headBranch,
+        event: eventName
+    };
+    return octokit.actions.listWorkflowRuns.endpoint.merge(request);
+}
+function createListRunsQueryMyOwnRun(octokit, owner, repo, status, workflowId, runId) {
+    const request = {
+        owner,
+        repo,
+        // eslint-disable-next-line @typescript-eslint/camelcase
+        workflow_id: workflowId,
+        status,
+        // eslint-disable-next-line @typescript-eslint/camelcase
+        run_id: runId.toString()
+    };
+    return octokit.actions.listWorkflowRuns.endpoint.merge(request);
+}
+function createListRunsQueryAllRuns(octokit, owner, repo, status, workflowId) {
+    const request = {
+        owner,
+        repo,
+        // eslint-disable-next-line @typescript-eslint/camelcase
+        workflow_id: workflowId,
+        status
+    };
+    return octokit.actions.listWorkflowRuns.endpoint.merge(request);
+}
+function createJobsForWorkflowRunQuery(octokit, owner, repo, runId) {
+    const request = {
+        owner,
+        repo,
+        // eslint-disable-next-line @typescript-eslint/camelcase
+        run_id: runId
+    };
+    return octokit.actions.listJobsForWorkflowRun.endpoint.merge(request);
+}
+function matchInArray(s, regexps) {
+    for (const regexp of regexps) {
+        if (s.match(regexp)) {
+            return true;
+        }
+    }
+    return false;
+}
+function jobsMatchingNames(octokit, owner, repo, runId, jobNameRegexps, checkIfFailed) {
+    var e_1, _a;
+    return __awaiter(this, void 0, void 0, function* () {
+        const listJobs = createJobsForWorkflowRunQuery(octokit, owner, repo, runId);
+        if (checkIfFailed) {
+            core.info(`\nChecking if runId ${runId} has job names matching any of the ${jobNameRegexps} that failed\n`);
+        }
+        else {
+            core.info(`\nChecking if runId ${runId} has job names matching any of the ${jobNameRegexps}\n`);
+        }
+        try {
+            for (var _b = __asyncValues(octokit.paginate.iterator(listJobs)), _c; _c = yield _b.next(), !_c.done;) {
+                const item = _c.value;
+                for (const job of item.data.jobs) {
+                    core.info(`    The job name: ${job.name}, Conclusion: ${job.conclusion}`);
+                    if (matchInArray(job.name, jobNameRegexps)) {
+                        if (checkIfFailed) {
+                            // Only fail the build if one of the matching jobs fail
+                            if (job.conclusion === 'failure') {
+                                core.info(`    The Job ${job.name} matches one of the ${jobNameRegexps} regexps and it failed. Cancelling run.`);
+                                return true;
+                            }
+                            else {
+                                core.info(`    The Job ${job.name} matches one of the ${jobNameRegexps} regexps but it did not fail. So far, so good.`);
+                            }
+                        }
+                        else {
+                            // Fail the build if any of the job names match
+                            core.info(`    The Job ${job.name} matches one of the ${jobNameRegexps} regexps. Cancelling run.`);
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        catch (e_1_1) { e_1 = { error: e_1_1 }; }
+        finally {
+            try {
+                if (_c && !_c.done && (_a = _b.return)) yield _a.call(_b);
+            }
+            finally { if (e_1) throw e_1.error; }
+        }
+        return false;
+    });
+}
+function getWorkflowId(octokit, runId, owner, repo) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const reply = yield octokit.actions.getWorkflowRun({
+            owner,
+            repo,
+            // eslint-disable-next-line @typescript-eslint/camelcase
+            run_id: runId
+        });
+        core.info(`The source run ${runId} is in ${reply.data.workflow_url} workflow`);
+        const workflowIdString = reply.data.workflow_url.split('/').pop() || '';
+        if (!(workflowIdString.length > 0)) {
+            throw new Error('Could not resolve workflow');
+        }
+        return parseInt(workflowIdString);
+    });
+}
+function getWorkflowRuns(octokit, statusValues, cancelMode, createListRunQuery) {
+    var e_2, _a;
+    return __awaiter(this, void 0, void 0, function* () {
+        const workflowRuns = new treemap.TreeMap();
+        for (const status of statusValues) {
+            const listRuns = yield createListRunQuery(status);
+            try {
+                for (var _b = __asyncValues(octokit.paginate.iterator(listRuns)), _c; _c = yield _b.next(), !_c.done;) {
+                    const item = _c.value;
+                    // There is some sort of bug where the pagination URLs point to a
+                    // different endpoint URL which trips up the resulting representation
+                    // In that case, fallback to the actual REST 'workflow_runs' property
+                    const elements = item.data.length === undefined ? item.data.workflow_runs : item.data;
+                    for (const element of elements) {
+                        workflowRuns.set(element.run_number, element);
+                    }
+                }
+            }
+            catch (e_2_1) { e_2 = { error: e_2_1 }; }
+            finally {
+                try {
+                    if (_c && !_c.done && (_a = _b.return)) yield _a.call(_b);
+                }
+                finally { if (e_2) throw e_2.error; }
+            }
+        }
+        core.info(`\nFound runs: ${Array.from(workflowRuns).map(t => t[0])}\n`);
+        return workflowRuns;
+    });
+}
+function shouldBeCancelled(octokit, owner, repo, runItem, headRepo, cancelMode, sourceRunId, jobNamesRegexps) {
+    return __awaiter(this, void 0, void 0, function* () {
+        if ('completed' === runItem.status.toString()) {
+            core.info(`\nThe run ${runItem.id} is completed. Not cancelling it.\n`);
+            return false;
+        }
+        if (!CANCELLABLE_RUNS.includes(runItem.event.toString())) {
+            core.info(`\nThe run ${runItem.id} is (${runItem.event} event - not in ${CANCELLABLE_RUNS}). Not cancelling it.\n`);
+            return false;
+        }
+        if (cancelMode === CancelMode.FAILED_JOBS) {
+            // Cancel all jobs that have failed jobs (no matter when started)
+            if (yield jobsMatchingNames(octokit, owner, repo, runItem.id, jobNamesRegexps, true)) {
+                core.info(`\nSome matching named jobs failed in ${runItem.id} . Cancelling it.\n`);
+                return true;
+            }
+            else {
+                core.info(`\nNone of the matching jobs failed in ${runItem.id}. Not cancelling it.\n`);
+                return false;
+            }
+        }
+        else if (cancelMode === CancelMode.NAMED_JOBS) {
+            // Cancel all jobs that have failed jobs (no matter when started)
+            if (yield jobsMatchingNames(octokit, owner, repo, runItem.id, jobNamesRegexps, false)) {
+                core.info(`\nSome jobs have matching names in ${runItem.id} . Cancelling it.\n`);
+                return true;
+            }
+            else {
+                core.info(`\nNone of the jobs match name in ${runItem.id}. Not cancelling it.\n`);
+                return false;
+            }
+        }
+        else if (cancelMode === CancelMode.SELF) {
+            if (runItem.id === sourceRunId) {
+                core.info(`\nCancelling the "source" run: ${runItem.id}.\n`);
+                return true;
+            }
+            else {
+                return false;
+            }
+        }
+        else if (cancelMode === CancelMode.DUPLICATES) {
+            const runHeadRepo = runItem.head_repository.full_name;
+            if (headRepo !== undefined && runHeadRepo !== headRepo) {
+                core.info(`\nThe run ${runItem.id} is from a different ` +
+                    `repo: ${runHeadRepo} (expected ${headRepo}). Not cancelling it\n`);
+                return false;
+            }
+            if (runItem.id === sourceRunId) {
+                core.info(`\nThis is my own run ${runItem.id}. I have self-preservation mechanism. Not cancelling myself!\n`);
+                return false;
+            }
+            else if (runItem.id > sourceRunId) {
+                core.info(`\nThe run ${runItem.id} is started later than mt own run ${sourceRunId}. Not cancelling it\n`);
+                return false;
+            }
+            else {
+                core.info(`\nCancelling duplicate of my own run: ${runItem.id}.\n`);
+                return true;
+            }
+        }
+        else {
+            throw Error(`\nWrong cancel mode ${cancelMode}! This should never happen.\n`);
+        }
+    });
+}
+function cancelRun(octokit, owner, repo, runId) {
+    return __awaiter(this, void 0, void 0, function* () {
+        let reply;
+        try {
+            reply = yield octokit.actions.cancelWorkflowRun({
+                owner,
+                repo,
+                // eslint-disable-next-line @typescript-eslint/camelcase
+                run_id: runId
+            });
+            core.info(`\nThe run ${runId} cancelled, status = ${reply.status}\n`);
+        }
+        catch (error) {
+            core.warning(`\nCould not cancel run ${runId}: [${error.status}] ${error.message}\n`);
+        }
+    });
+}
+function findAndCancelRuns(octokit, sourceWorkflowId, sourceRunId, owner, repo, headRepo, headBranch, sourceEventName, cancelMode, jobNameRegexps) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const statusValues = ['queued', 'in_progress'];
+        const workflowRuns = yield getWorkflowRuns(octokit, statusValues, cancelMode, function (status) {
+            if (cancelMode === CancelMode.SELF) {
+                core.info(`\nFinding runs for my own run: Owner: ${owner}, Repo: ${repo}, ` +
+                    `Workflow ID:${sourceWorkflowId}, Source Run id: ${sourceRunId}\n`);
+                return createListRunsQueryMyOwnRun(octokit, owner, repo, status, sourceWorkflowId, sourceRunId);
+            }
+            else if (cancelMode === CancelMode.FAILED_JOBS ||
+                cancelMode === CancelMode.NAMED_JOBS) {
+                core.info(`\nFinding runs for all runs: Owner: ${owner}, Repo: ${repo}, Status: ${status} ` +
+                    `Workflow ID:${sourceWorkflowId}\n`);
+                return createListRunsQueryAllRuns(octokit, owner, repo, status, sourceWorkflowId);
+            }
+            else if (cancelMode === CancelMode.DUPLICATES) {
+                core.info(`\nFinding duplicate runs: Owner: ${owner}, Repo: ${repo}, Status: ${status} ` +
+                    `Workflow ID:${sourceWorkflowId}, Head Branch: ${headBranch},` +
+                    `Event name: ${sourceEventName}\n`);
+                return createListRunsQueryOtherRuns(octokit, owner, repo, status, sourceWorkflowId, headBranch, sourceEventName);
+            }
+            else {
+                throw Error(`\nWrong cancel mode ${cancelMode}! This should never happen.\n`);
+            }
+        });
+        const idsToCancel = [];
+        for (const [key, runItem] of workflowRuns) {
+            core.info(`\nChecking run number: ${key}, RunId: ${runItem.id}, Url: ${runItem.url}. Status ${runItem.status}\n`);
+            if (yield shouldBeCancelled(octokit, owner, repo, runItem, headRepo, cancelMode, sourceRunId, jobNameRegexps)) {
+                idsToCancel.push(runItem.id);
+            }
+        }
+        // Sort from smallest number - this way we always kill current one at the end (if we kill it at all)
+        const sortedIdsToCancel = idsToCancel.sort((id1, id2) => id1 - id2);
+        if (sortedIdsToCancel.length > 0) {
+            core.info('\n######  Cancelling runs starting from the oldest  ##########\n' +
+                `\n     Runs to cancel: ${sortedIdsToCancel.length}\n`);
+            for (const runId of sortedIdsToCancel) {
+                core.info(`\nCancelling run: ${runId}.\n`);
+                yield cancelRun(octokit, owner, repo, runId);
+            }
+            core.info('\n######  Finished cancelling runs                  ##########\n');
+        }
+        else {
+            core.info('\n######  There are no runs to cancel!              ##########\n');
+        }
+        return sortedIdsToCancel;
+    });
+}
+function getRequiredEnv(key) {
+    const value = process.env[key];
+    if (value === undefined) {
+        const message = `${key} was not defined.`;
+        throw new Error(message);
+    }
+    return value;
+}
+function getOrigin(octokit, runId, owner, repo) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const reply = yield octokit.actions.getWorkflowRun({
+            owner,
+            repo,
+            // eslint-disable-next-line @typescript-eslint/camelcase
+            run_id: runId
+        });
+        const sourceRun = reply.data;
+        core.info(`Source workflow: Head repo: ${sourceRun.head_repository.full_name}, ` +
+            `Head branch: ${sourceRun.head_branch} ` +
+            `Event: ${sourceRun.event}, Head sha: ${sourceRun.head_sha}, url: ${sourceRun.url}`);
+        return [
+            reply.data.head_repository.full_name,
+            reply.data.head_branch,
+            reply.data.event,
+            reply.data.head_sha
+        ];
+    });
+}
+function performCancelJob(octokit, sourceWorkflowId, sourceRunId, owner, repo, headRepo, headBranch, sourceEventName, cancelMode, jobNameRegexps) {
+    return __awaiter(this, void 0, void 0, function* () {
+        core.info('\n###################################################################################\n');
+        core.info(`All parameters: owner: ${owner}, repo: ${repo}, run id: ${sourceRunId}, ` +
+            `head repo ${headRepo}, headBranch: ${headBranch}, ` +
+            `sourceEventName: ${sourceEventName}, cancelMode: ${cancelMode}, jobNames: ${jobNameRegexps}`);
+        core.info('\n###################################################################################\n');
+        if (cancelMode === CancelMode.SELF) {
+            core.info(`# Cancelling source run: ${sourceRunId} for workflow ${sourceWorkflowId}.`);
+        }
+        else if (cancelMode === CancelMode.FAILED_JOBS) {
+            core.info(`# Cancel all runs for workflow ${sourceWorkflowId} where job names matching ${jobNameRegexps} failed.`);
+        }
+        else if (cancelMode === CancelMode.NAMED_JOBS) {
+            core.info(`# Cancel all runs for workflow ${sourceWorkflowId} have job names matching ${jobNameRegexps}.`);
+        }
+        else if (cancelMode === CancelMode.DUPLICATES) {
+            core.info(`# Cancel duplicate runs started before ${sourceRunId} for workflow ${sourceWorkflowId}.`);
+        }
+        else {
+            throw Error(`Wrong cancel mode ${cancelMode}! This should never happen.`);
+        }
+        core.info('\n###################################################################################\n');
+        return yield findAndCancelRuns(octokit, sourceWorkflowId, sourceRunId, owner, repo, headRepo, headBranch, sourceEventName, cancelMode, jobNameRegexps);
+    });
+}
+function run() {
+    return __awaiter(this, void 0, void 0, function* () {
+        const token = core.getInput('token', { required: true });
+        const octokit = new github.GitHub(token);
+        const selfRunId = parseInt(getRequiredEnv('GITHUB_RUN_ID'));
+        const repository = getRequiredEnv('GITHUB_REPOSITORY');
+        const eventName = getRequiredEnv('GITHUB_EVENT_NAME');
+        const cancelMode = core.getInput('cancelMode') || CancelMode.DUPLICATES;
+        const sourceRunId = parseInt(core.getInput('sourceRunId')) || selfRunId;
+        const jobNameRegexpsString = core.getInput('jobNameRegexps');
+        const jobNameRegexps = jobNameRegexpsString
+            ? JSON.parse(jobNameRegexpsString)
+            : [];
+        const [owner, repo] = repository.split('/');
+        core.info(`\nGetting workflow id for source run id: ${sourceRunId}, owner: ${owner}, repo: ${repo}\n`);
+        const sourceWorkflowId = yield getWorkflowId(octokit, sourceRunId, owner, repo);
+        core.info(`Repository: ${repository}, Owner: ${owner}, Repo: ${repo}, ` +
+            `Event name: ${eventName}, CancelMode: ${cancelMode}, ` +
+            `sourceWorkflowId: ${sourceWorkflowId}, sourceRunId: ${sourceRunId}, selfRunId: ${selfRunId}, ` +
+            `jobNames: ${jobNameRegexps}`);
+        if (sourceRunId === selfRunId) {
+            core.info(`\nFinding runs for my own workflow ${sourceWorkflowId}\n`);
+        }
+        else {
+            core.info(`\nFinding runs for source workflow ${sourceWorkflowId}\n`);
+        }
+        if (jobNameRegexps.length > 0 &&
+            [CancelMode.DUPLICATES, CancelMode.SELF].includes(cancelMode)) {
+            throw Error(`You cannot specify jobNames on ${cancelMode} cancelMode.`);
+        }
+        if (eventName === 'workflow_run' && sourceRunId === selfRunId) {
+            if (cancelMode === CancelMode.DUPLICATES)
+                throw Error(`You cannot run "workflow_run" in ${cancelMode} cancelMode without "sourceId" input.` +
+                    'It will likely not work as you intended - it will cancel runs which are not duplicates!' +
+                    'See the docs for details.');
+        }
+        const [headRepo, headBranch, sourceEventName, headSha] = yield getOrigin(octokit, sourceRunId, owner, repo);
+        core.setOutput('sourceHeadRepo', headRepo);
+        core.setOutput('sourceHeadBranch', headBranch);
+        core.setOutput('sourceHeadSha', headSha);
+        core.setOutput('sourceEvent', sourceEventName);
+        const cancelledRuns = yield performCancelJob(octokit, sourceWorkflowId, sourceRunId, owner, repo, headRepo, headBranch, sourceEventName, cancelMode, jobNameRegexps);
+        core.setOutput('cancelledRuns', JSON.stringify(cancelledRuns));
+    });
+}
+run()
+    .then(() => core.info('\n############### Cancel complete ##################\n'))
+    .catch(e => core.setFailed(e.message));
+
+
+/***/ }),
+
 /***/ 141:
 /***/ (function(__unusedmodule, exports, __webpack_require__) {
 
@@ -1988,311 +2408,6 @@ function checkMode (stat, options) {
 
 /***/ }),
 
-/***/ 198:
-/***/ (function(__unusedmodule, exports, __webpack_require__) {
-
-"use strict";
-
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
-var __asyncValues = (this && this.__asyncValues) || function (o) {
-    if (!Symbol.asyncIterator) throw new TypeError("Symbol.asyncIterator is not defined.");
-    var m = o[Symbol.asyncIterator], i;
-    return m ? m.call(o) : (o = typeof __values === "function" ? __values(o) : o[Symbol.iterator](), i = {}, verb("next"), verb("throw"), verb("return"), i[Symbol.asyncIterator] = function () { return this; }, i);
-    function verb(n) { i[n] = o[n] && function (v) { return new Promise(function (resolve, reject) { v = o[n](v), settle(resolve, reject, v.done, v.value); }); }; }
-    function settle(resolve, reject, d, v) { Promise.resolve(v).then(function(v) { resolve({ value: v, done: d }); }, reject); }
-};
-var __importStar = (this && this.__importStar) || function (mod) {
-    if (mod && mod.__esModule) return mod;
-    var result = {};
-    if (mod != null) for (var k in mod) if (Object.hasOwnProperty.call(mod, k)) result[k] = mod[k];
-    result["default"] = mod;
-    return result;
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-const github = __importStar(__webpack_require__(469));
-const core = __importStar(__webpack_require__(393));
-const treemap = __importStar(__webpack_require__(706));
-function createListRunsQueryForAllRuns(octokit, owner, repo, workflowId, status) {
-    const request = {
-        owner,
-        repo,
-        // eslint-disable-next-line @typescript-eslint/camelcase
-        workflow_id: workflowId,
-        status
-    };
-    return octokit.actions.listWorkflowRuns.endpoint.merge(request);
-}
-function createListRunsQueryForSelfRun(octokit, owner, repo, workflowId, status, branch, eventName) {
-    const request = {
-        owner,
-        repo,
-        // eslint-disable-next-line @typescript-eslint/camelcase
-        workflow_id: workflowId,
-        status,
-        branch,
-        event: eventName
-    };
-    return octokit.actions.listWorkflowRuns.endpoint.merge(request);
-}
-function createJobsForWorkflowRunQuery(octokit, owner, repo, runId) {
-    const request = {
-        owner,
-        repo,
-        // eslint-disable-next-line @typescript-eslint/camelcase
-        run_id: runId,
-    };
-    return octokit.actions.listJobsForWorkflowRun.endpoint.merge(request);
-}
-function cancelOnFailFastJobsFailed(octokit, owner, repo, runId, head, failFastJobNames) {
-    var e_1, _a;
-    return __awaiter(this, void 0, void 0, function* () {
-        const listJobs = createJobsForWorkflowRunQuery(octokit, owner, repo, runId);
-        core.info(`Cancelling runId ${runId} in case one of the ${failFastJobNames} failed`);
-        try {
-            for (var _b = __asyncValues(octokit.paginate.iterator(listJobs)), _c; _c = yield _b.next(), !_c.done;) {
-                const item = _c.value;
-                for (const job of item.data.jobs) {
-                    core.info(`The job name: ${job.name}, Conclusion: ${job.conclusion}`);
-                    if (job.conclusion == 'failure' &&
-                        failFastJobNames.some(jobNameRegexp => job.name.match(jobNameRegexp))) {
-                        core.info(`Job ${job.name} has failed and it matches one of the ${failFastJobNames} regexps`);
-                        core.info(`Cancelling the workflow run: ${runId}, head: ${head}`);
-                        yield cancelRun(octokit, owner, repo, runId);
-                        return;
-                    }
-                }
-            }
-        }
-        catch (e_1_1) { e_1 = { error: e_1_1 }; }
-        finally {
-            try {
-                if (_c && !_c.done && (_a = _b.return)) yield _a.call(_b);
-            }
-            finally { if (e_1) throw e_1.error; }
-        }
-    });
-}
-function getSelfWorkflowId(octokit, selfRunId, owner, repo) {
-    return __awaiter(this, void 0, void 0, function* () {
-        let workflowId;
-        const reply = yield octokit.actions.getWorkflowRun({
-            owner,
-            repo,
-            // eslint-disable-next-line @typescript-eslint/camelcase
-            run_id: Number.parseInt(selfRunId)
-        });
-        workflowId = reply.data.workflow_url.split('/').pop() || '';
-        if (!(workflowId.length > 0)) {
-            throw new Error('Could not resolve workflow');
-        }
-        return workflowId;
-    });
-}
-function getSortedWorkflowRuns(octokit, createListRunQuery) {
-    var e_2, _a;
-    return __awaiter(this, void 0, void 0, function* () {
-        const sortedWorkflowRuns = new treemap.TreeMap();
-        for (const status of ['queued', 'in_progress']) {
-            const listRuns = yield createListRunQuery(status);
-            try {
-                for (var _b = __asyncValues(octokit.paginate.iterator(listRuns)), _c; _c = yield _b.next(), !_c.done;) {
-                    const item = _c.value;
-                    // There is some sort of bug where the pagination URLs point to a
-                    // different endpoint URL which trips up the resulting representation
-                    // In that case, fallback to the actual REST 'workflow_runs' property
-                    const elements = item.data.length === undefined ? item.data.workflow_runs : item.data;
-                    for (const element of elements) {
-                        sortedWorkflowRuns.set(element.run_number, element);
-                    }
-                }
-            }
-            catch (e_2_1) { e_2 = { error: e_2_1 }; }
-            finally {
-                try {
-                    if (_c && !_c.done && (_a = _b.return)) yield _a.call(_b);
-                }
-                finally { if (e_2) throw e_2.error; }
-            }
-        }
-        core.info(`Found runs: ${Array.from(sortedWorkflowRuns.backward()).map(t => t[0])}`);
-        return sortedWorkflowRuns;
-    });
-}
-function shouldRunBeSkipped(runItem) {
-    if ('completed' === runItem.status.toString()) {
-        core.info(`Skip completed run: ${runItem.id}`);
-        return true;
-    }
-    if (!['push', 'pull_request'].includes(runItem.event.toString())) {
-        core.info(`Skip run: ${runItem.id} as it is neither push nor pull_request (${runItem.event}`);
-        return true;
-    }
-    return false;
-}
-function cancelRun(octokit, owner, repo, id) {
-    return __awaiter(this, void 0, void 0, function* () {
-        let reply;
-        try {
-            reply = yield octokit.actions.cancelWorkflowRun({
-                owner: owner,
-                repo: repo,
-                // eslint-disable-next-line @typescript-eslint/camelcase
-                run_id: id
-            });
-            core.info(`Previous run (id ${id}) cancelled, status = ${reply.status}`);
-        }
-        catch (error) {
-            core.info(`[warn] Could not cancel run (id ${id}): [${error.status}] ${error.message}`);
-        }
-    });
-}
-// Kills past runs for my own workflow.
-function findAndCancelPastRunsForSelf(octokit, selfRunId, owner, repo, branch, eventName) {
-    return __awaiter(this, void 0, void 0, function* () {
-        core.info(`findAndCancelPastRunsForSelf:  ${selfRunId}, ${owner}, ${repo}, ${branch}, ${eventName}`);
-        const workflowId = yield getSelfWorkflowId(octokit, selfRunId, owner, repo);
-        core.info(`My own workflow ID is: ${workflowId}`);
-        const sortedWorkflowRuns = yield getSortedWorkflowRuns(octokit, function (status) {
-            return createListRunsQueryForSelfRun(octokit, owner, repo, workflowId, status, branch, eventName);
-        });
-        let matched = false;
-        const headsToRunIdMap = new Map();
-        for (const [key, runItem] of sortedWorkflowRuns.backward()) {
-            core.info(`Run number: ${key}, RunId: ${runItem.id}, URL: ${runItem.workflow_url}. Status ${runItem.status}`);
-            if (!matched) {
-                if (runItem.id.toString() !== selfRunId) {
-                    core.info(`Skip run ${runItem.id} as it was started before my own id: ${selfRunId}`);
-                    continue;
-                }
-                matched = true;
-                core.info(`Matched ${selfRunId}. Reached my own ID, now looping through all remaining runs/`);
-                core.info("I will cancel all except the first for each 'head' available");
-            }
-            if (shouldRunBeSkipped(runItem)) {
-                continue;
-            }
-            // Head of the run
-            const head = `${runItem.head_repository.full_name}/${runItem.head_branch}`;
-            if (!headsToRunIdMap.has(head)) {
-                core.info(`First run for the head: ${head}. Skipping it. Next ones with same head will be cancelled.`);
-                headsToRunIdMap.set(head, runItem.id);
-                continue;
-            }
-            core.info(`Cancelling run: ${runItem.id}, head ${head}.`);
-            core.info(`There is a later run with same head: ${headsToRunIdMap.get(head)}`);
-            yield cancelRun(octokit, owner, repo, runItem.id);
-        }
-    });
-}
-// Kills past runs for my own workflow.
-function findAndCancelPastRunsForSchedule(octokit, workflowId, owner, repo, failFastJobNames) {
-    return __awaiter(this, void 0, void 0, function* () {
-        core.info(`findAndCancelPastRunsForSchedule: ${owner}, ${workflowId}, ${repo}`);
-        const sortedWorkflowRuns = yield getSortedWorkflowRuns(octokit, function (status) {
-            return createListRunsQueryForAllRuns(octokit, owner, repo, workflowId, status);
-        });
-        const headsToRunIdMap = new Map();
-        for (const [key, runItem] of sortedWorkflowRuns.backward()) {
-            core.info(` ${key} ${runItem.id} : ${runItem.workflow_url} : ${runItem.status} : ${runItem.run_number}`);
-            if (shouldRunBeSkipped(runItem)) {
-                continue;
-            }
-            // Head of the run
-            const head = `${runItem.head_repository.full_name}/${runItem.head_branch}`;
-            if (!headsToRunIdMap.has(head)) {
-                core.info(`First run for the head: ${head}. Next runs with the same head will be cancelled.`);
-                headsToRunIdMap.set(head, runItem.id);
-                if (failFastJobNames !== undefined) {
-                    core.info("Checking if the head run failed in specified jobs");
-                    yield cancelOnFailFastJobsFailed(octokit, owner, repo, runItem.id, head, failFastJobNames);
-                }
-                else {
-                    core.info("Skipping the head run.");
-                }
-                continue;
-            }
-            core.info(`Cancelling run: ${runItem.id}, head ${head}.`);
-            core.info(`There is a later run with same head: ${headsToRunIdMap.get(head)}`);
-            yield cancelRun(octokit, owner, repo, runItem.id);
-        }
-    });
-}
-function getRequiredEnv(key) {
-    const value = process.env[key];
-    if (value === undefined) {
-        const message = `${key} was not defined.`;
-        throw new Error(message);
-    }
-    return value;
-}
-function runScheduledRun(octokit, owner, repo) {
-    return __awaiter(this, void 0, void 0, function* () {
-        const workflowId = core.getInput('workflow');
-        if (!(workflowId.length > 0)) {
-            core.setFailed('Workflow must be specified for schedule event type');
-            return;
-        }
-        const failFastJobNames = JSON.parse(core.getInput('failFastJobNames'));
-        if (failFastJobNames !== undefined) {
-            core.info(`Checking also if last run failed in one of the jobs: ${failFastJobNames}`);
-        }
-        yield findAndCancelPastRunsForSchedule(octokit, workflowId, owner, repo, failFastJobNames);
-        return;
-    });
-}
-function runRegularRun(octokit, selfRunId, owner, repo, eventName) {
-    return __awaiter(this, void 0, void 0, function* () {
-        const pullRequest = 'pull_request' === eventName;
-        const branchPrefix = 'refs/heads/';
-        const tagPrefix = 'refs/tags/';
-        let branch = getRequiredEnv(pullRequest ? 'GITHUB_HEAD_REF' : 'GITHUB_REF');
-        if (!pullRequest && !branch.startsWith(branchPrefix)) {
-            if (branch.startsWith(tagPrefix)) {
-                core.info(`Skipping tag build`);
-                return;
-            }
-            core.setFailed(`${branch} was not an expected branch ref (refs/heads/).`);
-            return;
-        }
-        branch = branch.replace(branchPrefix, '');
-        core.info(`Branch is ${branch}, repo is ${repo}, and owner is ${owner}, and id is ${selfRunId}`);
-        yield findAndCancelPastRunsForSelf(octokit, selfRunId, owner, repo, branch, eventName);
-    });
-}
-function run() {
-    return __awaiter(this, void 0, void 0, function* () {
-        const token = core.getInput('token');
-        const octokit = new github.GitHub(token);
-        core.info(`Starting checking for workflows to cancel`);
-        const selfRunId = getRequiredEnv('GITHUB_RUN_ID');
-        const repository = getRequiredEnv('GITHUB_REPOSITORY');
-        const eventName = getRequiredEnv('GITHUB_EVENT_NAME');
-        const [owner, repo] = repository.split('/');
-        if ('schedule' === eventName) {
-            yield runScheduledRun(octokit, owner, repo);
-        }
-        else if (!['push', 'pull_request'].includes(eventName)) {
-            core.info('Skipping unsupported event');
-            return;
-        }
-        else {
-            yield runRegularRun(octokit, selfRunId, owner, repo, eventName);
-        }
-    });
-}
-run().then(() => core.info("Cancel complete")).catch(e => core.setFailed(e.message));
-
-
-/***/ }),
-
 /***/ 211:
 /***/ (function(module) {
 
@@ -2303,7 +2418,7 @@ module.exports = require("https");
 /***/ 215:
 /***/ (function(module) {
 
-module.exports = {"_args":[["@octokit/rest@16.43.0","/home/jarek/code/cancel-previous-runs"]],"_from":"@octokit/rest@16.43.0","_id":"@octokit/rest@16.43.0","_inBundle":false,"_integrity":"sha512-u+OwrTxHuppVcssGmwCmb4jgPNzsRseJ2rS5PrZk2ASC+WkaF5Q7wu8zVtJ4OA24jK6aRymlwA2uwL36NU9nAA==","_location":"/@octokit/rest","_phantomChildren":{},"_requested":{"type":"version","registry":true,"raw":"@octokit/rest@16.43.0","name":"@octokit/rest","escapedName":"@octokit%2frest","scope":"@octokit","rawSpec":"16.43.0","saveSpec":null,"fetchSpec":"16.43.0"},"_requiredBy":["/@actions/github"],"_resolved":"https://registry.npmjs.org/@octokit/rest/-/rest-16.43.0.tgz","_spec":"16.43.0","_where":"/home/jarek/code/cancel-previous-runs","author":{"name":"Gregor Martynus","url":"https://github.com/gr2m"},"bugs":{"url":"https://github.com/octokit/rest.js/issues"},"bundlesize":[{"path":"./dist/octokit-rest.min.js.gz","maxSize":"33 kB"}],"contributors":[{"name":"Mike de Boer","email":"info@mikedeboer.nl"},{"name":"Fabian Jakobs","email":"fabian@c9.io"},{"name":"Joe Gallo","email":"joe@brassafrax.com"},{"name":"Gregor Martynus","url":"https://github.com/gr2m"}],"dependencies":{"@octokit/auth-token":"^2.4.0","@octokit/plugin-paginate-rest":"^1.1.1","@octokit/plugin-request-log":"^1.0.0","@octokit/plugin-rest-endpoint-methods":"2.4.0","@octokit/request":"^5.2.0","@octokit/request-error":"^1.0.2","atob-lite":"^2.0.0","before-after-hook":"^2.0.0","btoa-lite":"^1.0.0","deprecation":"^2.0.0","lodash.get":"^4.4.2","lodash.set":"^4.3.2","lodash.uniq":"^4.5.0","octokit-pagination-methods":"^1.1.0","once":"^1.4.0","universal-user-agent":"^4.0.0"},"description":"GitHub REST API client for Node.js","devDependencies":{"@gimenete/type-writer":"^0.1.3","@octokit/auth":"^1.1.1","@octokit/fixtures-server":"^5.0.6","@octokit/graphql":"^4.2.0","@types/node":"^13.1.0","bundlesize":"^0.18.0","chai":"^4.1.2","compression-webpack-plugin":"^3.1.0","cypress":"^3.0.0","glob":"^7.1.2","http-proxy-agent":"^4.0.0","lodash.camelcase":"^4.3.0","lodash.merge":"^4.6.1","lodash.upperfirst":"^4.3.1","lolex":"^5.1.2","mkdirp":"^1.0.0","mocha":"^7.0.1","mustache":"^4.0.0","nock":"^11.3.3","npm-run-all":"^4.1.2","nyc":"^15.0.0","prettier":"^1.14.2","proxy":"^1.0.0","semantic-release":"^17.0.0","sinon":"^8.0.0","sinon-chai":"^3.0.0","sort-keys":"^4.0.0","string-to-arraybuffer":"^1.0.0","string-to-jsdoc-comment":"^1.0.0","typescript":"^3.3.1","webpack":"^4.0.0","webpack-bundle-analyzer":"^3.0.0","webpack-cli":"^3.0.0"},"files":["index.js","index.d.ts","lib","plugins"],"homepage":"https://github.com/octokit/rest.js#readme","keywords":["octokit","github","rest","api-client"],"license":"MIT","name":"@octokit/rest","nyc":{"ignore":["test"]},"publishConfig":{"access":"public"},"release":{"publish":["@semantic-release/npm",{"path":"@semantic-release/github","assets":["dist/*","!dist/*.map.gz"]}]},"repository":{"type":"git","url":"git+https://github.com/octokit/rest.js.git"},"scripts":{"build":"npm-run-all build:*","build:browser":"npm-run-all build:browser:*","build:browser:development":"webpack --mode development --entry . --output-library=Octokit --output=./dist/octokit-rest.js --profile --json > dist/bundle-stats.json","build:browser:production":"webpack --mode production --entry . --plugin=compression-webpack-plugin --output-library=Octokit --output-path=./dist --output-filename=octokit-rest.min.js --devtool source-map","build:ts":"npm run -s update-endpoints:typescript","coverage":"nyc report --reporter=html && open coverage/index.html","generate-bundle-report":"webpack-bundle-analyzer dist/bundle-stats.json --mode=static --no-open --report dist/bundle-report.html","lint":"prettier --check '{lib,plugins,scripts,test}/**/*.{js,json,ts}' 'docs/*.{js,json}' 'docs/src/**/*' index.js README.md package.json","lint:fix":"prettier --write '{lib,plugins,scripts,test}/**/*.{js,json,ts}' 'docs/*.{js,json}' 'docs/src/**/*' index.js README.md package.json","postvalidate:ts":"tsc --noEmit --target es6 test/typescript-validate.ts","prebuild:browser":"mkdirp dist/","pretest":"npm run -s lint","prevalidate:ts":"npm run -s build:ts","start-fixtures-server":"octokit-fixtures-server","test":"nyc mocha test/mocha-node-setup.js \"test/*/**/*-test.js\"","test:browser":"cypress run --browser chrome","update-endpoints":"npm-run-all update-endpoints:*","update-endpoints:fetch-json":"node scripts/update-endpoints/fetch-json","update-endpoints:typescript":"node scripts/update-endpoints/typescript","validate:ts":"tsc --target es6 --noImplicitAny index.d.ts"},"types":"index.d.ts","version":"16.43.0"};
+module.exports = {"name":"@octokit/rest","version":"16.43.0","publishConfig":{"access":"public"},"description":"GitHub REST API client for Node.js","keywords":["octokit","github","rest","api-client"],"author":"Gregor Martynus (https://github.com/gr2m)","contributors":[{"name":"Mike de Boer","email":"info@mikedeboer.nl"},{"name":"Fabian Jakobs","email":"fabian@c9.io"},{"name":"Joe Gallo","email":"joe@brassafrax.com"},{"name":"Gregor Martynus","url":"https://github.com/gr2m"}],"repository":"https://github.com/octokit/rest.js","dependencies":{"@octokit/auth-token":"^2.4.0","@octokit/plugin-paginate-rest":"^1.1.1","@octokit/plugin-request-log":"^1.0.0","@octokit/plugin-rest-endpoint-methods":"2.4.0","@octokit/request":"^5.2.0","@octokit/request-error":"^1.0.2","atob-lite":"^2.0.0","before-after-hook":"^2.0.0","btoa-lite":"^1.0.0","deprecation":"^2.0.0","lodash.get":"^4.4.2","lodash.set":"^4.3.2","lodash.uniq":"^4.5.0","octokit-pagination-methods":"^1.1.0","once":"^1.4.0","universal-user-agent":"^4.0.0"},"devDependencies":{"@gimenete/type-writer":"^0.1.3","@octokit/auth":"^1.1.1","@octokit/fixtures-server":"^5.0.6","@octokit/graphql":"^4.2.0","@types/node":"^13.1.0","bundlesize":"^0.18.0","chai":"^4.1.2","compression-webpack-plugin":"^3.1.0","cypress":"^3.0.0","glob":"^7.1.2","http-proxy-agent":"^4.0.0","lodash.camelcase":"^4.3.0","lodash.merge":"^4.6.1","lodash.upperfirst":"^4.3.1","lolex":"^5.1.2","mkdirp":"^1.0.0","mocha":"^7.0.1","mustache":"^4.0.0","nock":"^11.3.3","npm-run-all":"^4.1.2","nyc":"^15.0.0","prettier":"^1.14.2","proxy":"^1.0.0","semantic-release":"^17.0.0","sinon":"^8.0.0","sinon-chai":"^3.0.0","sort-keys":"^4.0.0","string-to-arraybuffer":"^1.0.0","string-to-jsdoc-comment":"^1.0.0","typescript":"^3.3.1","webpack":"^4.0.0","webpack-bundle-analyzer":"^3.0.0","webpack-cli":"^3.0.0"},"types":"index.d.ts","scripts":{"coverage":"nyc report --reporter=html && open coverage/index.html","lint":"prettier --check '{lib,plugins,scripts,test}/**/*.{js,json,ts}' 'docs/*.{js,json}' 'docs/src/**/*' index.js README.md package.json","lint:fix":"prettier --write '{lib,plugins,scripts,test}/**/*.{js,json,ts}' 'docs/*.{js,json}' 'docs/src/**/*' index.js README.md package.json","pretest":"npm run -s lint","test":"nyc mocha test/mocha-node-setup.js \"test/*/**/*-test.js\"","test:browser":"cypress run --browser chrome","build":"npm-run-all build:*","build:ts":"npm run -s update-endpoints:typescript","prebuild:browser":"mkdirp dist/","build:browser":"npm-run-all build:browser:*","build:browser:development":"webpack --mode development --entry . --output-library=Octokit --output=./dist/octokit-rest.js --profile --json > dist/bundle-stats.json","build:browser:production":"webpack --mode production --entry . --plugin=compression-webpack-plugin --output-library=Octokit --output-path=./dist --output-filename=octokit-rest.min.js --devtool source-map","generate-bundle-report":"webpack-bundle-analyzer dist/bundle-stats.json --mode=static --no-open --report dist/bundle-report.html","update-endpoints":"npm-run-all update-endpoints:*","update-endpoints:fetch-json":"node scripts/update-endpoints/fetch-json","update-endpoints:typescript":"node scripts/update-endpoints/typescript","prevalidate:ts":"npm run -s build:ts","validate:ts":"tsc --target es6 --noImplicitAny index.d.ts","postvalidate:ts":"tsc --noEmit --target es6 test/typescript-validate.ts","start-fixtures-server":"octokit-fixtures-server"},"license":"MIT","files":["index.js","index.d.ts","lib","plugins"],"nyc":{"ignore":["test"]},"release":{"publish":["@semantic-release/npm",{"path":"@semantic-release/github","assets":["dist/*","!dist/*.map.gz"]}]},"bundlesize":[{"path":"./dist/octokit-rest.min.js.gz","maxSize":"33 kB"}],"_resolved":"https://registry.npmjs.org/@octokit/rest/-/rest-16.43.0.tgz","_integrity":"sha512-u+OwrTxHuppVcssGmwCmb4jgPNzsRseJ2rS5PrZk2ASC+WkaF5Q7wu8zVtJ4OA24jK6aRymlwA2uwL36NU9nAA==","_from":"@octokit/rest@16.43.0"};
 
 /***/ }),
 

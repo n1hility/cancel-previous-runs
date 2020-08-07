@@ -1,20 +1,34 @@
 name: 'Cancel Workflow Runs'
-description: 'Cancels previous runs and optionally failed runs of a workflow'
+description: 'Cancel Workflow Runs - duplicates, failed, named in order to limit job usage,'
 author: 'potiuk'
 inputs:
   token:
     description: The GITHUB_TOKEN secret of the repository
     required: true
-  workflow:
-    description: The filename of the workflow to limit runs on (only applies to scheduled events)
-    required: false
-  failFastJobNames:
+  sourceRunId:
     description: |
-      Array of job names (JSON-encoded string). Failures of those jobs are fail-fast of whole workflow.
+      The run that triggered the action. It should be set to
+      `$\{\{ github.event.workflow_run.id` variable \}\}` if used in `workflow_run` triggered run if
+      you want to act on source workflow rather than the triggered run.
+    required: false
+  cancelMode:
+    description: |
+      The mode of cancel. One of:
+          * `duplicates`  - cancels past, duplicate runs from the same repo/branch as local run or
+                            sourceId workflow. This is the default mode when cancelMode is not specified.
+          * `self`        - cancels self run - either own run if sourceRunId is not set, or
+                            the source run that triggered the `workflow_run'
+          * `failedJobs`  - cancels all runs that failed in jobs matching one of the regexps
+          * `namedJobs`   - cancels runs where names of some jobs match some of regexps
+    required: false
+  jobNameRegexps:
+    description: |
+      Array of job name regexps (JSON-encoded string). Used by `failedJobs` and `namedJobs` cancel modes
+      to match job names of workflow runs.
     required: false
 runs:
   using: 'node12'
   main: 'dist/index.js'
 branding:
   icon: 'play'
-  color: 'orange'
+  color: 'blue'
