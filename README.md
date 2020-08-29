@@ -520,7 +520,7 @@ jobs:
           jobNameRegexps: '["^Static checks$", "^Build docs$", "^Build prod image.*"]'
       - name: "Extract canceled failed runs"
         id: extract-cancelled-failed-runs
-        if: steps.cancel-failed.outputs.cancelledRuns != "[]"
+        if: steps.cancel-failed.outputs.cancelledRuns != '[]'
         run: |
             REGEXP="Fail fast CI. Source run: "
             SEPARATOR=""
@@ -531,7 +531,7 @@ jobs:
             done
             echo "::set-output name=matching-regexp::${REGEXP}"
       - name: "Cancel triggered 'Cancelling' runs for the cancelled failed runs"
-        if: steps.cancel-failed.outputs.cancelledRuns != "[]"
+        if: steps.cancel-failed.outputs.cancelledRuns != '[]'
         uses: potiuk/cancel-workflow-runs@master
         with:
           cancelMode: namedJobs
