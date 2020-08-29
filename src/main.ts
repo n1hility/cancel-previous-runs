@@ -3,7 +3,13 @@ import * as core from '@actions/core'
 import * as rest from '@octokit/rest'
 import * as treemap from 'jstreemap'
 
-const CANCELLABLE_RUNS = ['push', 'pull_request', 'workflow_run', 'schedule', 'workflow_dispatch']
+const CANCELLABLE_RUNS = [
+  'push',
+  'pull_request',
+  'workflow_run',
+  'schedule',
+  'workflow_dispatch'
+]
 
 enum CancelMode {
   DUPLICATES = 'duplicates',

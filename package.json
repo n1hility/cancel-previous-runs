@@ -12,7 +12,7 @@
     "pack": "ncc build",
     "test": "jest",
     "all": "npm run build && npm run format && npm run lint && npm run pack && npm test",
-    "release": "ncc build -o dist src/main.ts && git add -f dist/"
+    "release": "ncc build -o dist src/main.ts"
   },
   "repository": {
     "type": "git",
