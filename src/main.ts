@@ -153,7 +153,7 @@ async function run(): Promise<void> {
       return
     }
 
-    if (!['push', 'pull_request'].includes(eventName)) {
+    if (!['push', 'pull_request', 'repository_dispatch'].includes(eventName)) {
       core.info('Skipping unsupported event')
       return
     }
@@ -161,6 +161,7 @@ async function run(): Promise<void> {
     const pullRequest = 'pull_request' === eventName
 
     let branch = getRequiredEnv(pullRequest ? 'GITHUB_HEAD_REF' : 'GITHUB_REF')
+    core.info(`branch ${branch}`)
     if (!pullRequest && !branch.startsWith(branchPrefix)) {
       if (branch.startsWith(tagPrefix)) {
         core.info(`Skipping tag build`)
