@@ -139,7 +139,6 @@ async function run(): Promise<void> {
     const selfRunId = getRequiredEnv('GITHUB_RUN_ID')
     const repository = getRequiredEnv('GITHUB_REPOSITORY')
     const eventName = getRequiredEnv('GITHUB_EVENT_NAME')
-    core.info(`eventName, ${eventName}`)
 
     const [owner, repo] = repository.split('/')
     const branchPrefix = 'refs/heads/'
