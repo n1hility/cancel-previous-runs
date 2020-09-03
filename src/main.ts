@@ -161,7 +161,7 @@ async function run(): Promise<void> {
     const pullRequest = 'pull_request' === eventName
 
     let branch = getRequiredEnv(pullRequest ? 'GITHUB_HEAD_REF' : 'GITHUB_REF')
-    core.info(`branch ${branch}`)
+    
     if (!pullRequest && !branch.startsWith(branchPrefix)) {
       if (branch.startsWith(tagPrefix)) {
         core.info(`Skipping tag build`)
