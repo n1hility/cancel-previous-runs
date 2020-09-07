@@ -154,7 +154,7 @@ async function run(): Promise<void> {
       return
     }
 
-    if (!['push', 'pull_request', 'repository_dispatch'].includes(eventName)) {
+    if (!['push', 'pull_request', 'repository_dispatch', 'schedule'].includes(eventName)) {
       core.info('Skipping unsupported event')
       return
     }
