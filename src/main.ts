@@ -1,8 +1,7 @@
 import * as core from '@actions/core'
 import * as github from '@actions/github'
 import * as treemap from 'jstreemap'
-
-const { Octokit } = require("@octokit/rest")
+import { Octokit } from '@octokit/rest'
 
 function createRunsQuery(
   octokit: github.GitHub,
