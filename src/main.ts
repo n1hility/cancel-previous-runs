@@ -96,7 +96,7 @@ async function cancelDuplicates(
   for (const entry of sorted.backward()) {
     const element = entry[1]
     core.info(
-      `${element.id} : ${element.workflow_url} : ${element.status} : ${element.run_number}`
+      `${element.id} : ${element.event} : ${element.workflow_url} : ${element.status} : ${element.run_number}`
     )
 
     if (!matched) {
@@ -153,7 +153,9 @@ async function run(): Promise<void> {
       return
     }
 
-    if (!['push', 'pull_request'].includes(eventName)) {
+    const acceptedEvents = core.getInput('events')
+
+    if (!['push', 'pull_request'].concat(acceptedEvents).includes(eventName)) {
       core.info('Skipping unsupported event')
       return
     }

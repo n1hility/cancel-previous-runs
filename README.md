@@ -1,4 +1,7 @@
 # cancel-previous-runs 
+
+This is just a fork from `n1hility/cancel-previous-runs`, extended to allow additional events be permitted to cancel a run.
+
 This action cancels previous runs for one or more branches/prs associated with a workflow, effectively limiting the resource consumption of the workflow to one per branch.
 
 <p><a href="https://github.com/actions/typescript-action/actions"><img alt="typescript-action status" src="https://github.com/actions/typescript-action/workflows/build-test/badge.svg"></a>
@@ -13,7 +16,7 @@ Additionally this action can be placed as an early step in your workflow (e.g. a
 
 token - The github token passed from `${{ secrets.GITHUB_TOKEN }}`. Since workflow files are visible in the repository, **DO NOT HARDCODE A TOKEN ONLY USE A REFERENCE**. 
 workflow - The filename of the workflow to limit runs on (only applies to schedule events) 
-
+events - list of additional events (in addition to the default events of `push` and `pull_request`, e.g. you may add `workflow_dispatch` and/or `repository_dispatch`)
 
 ### Schedule Example
 
