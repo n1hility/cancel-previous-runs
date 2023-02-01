@@ -9,7 +9,7 @@ inputs:
     description: The filename of the workflow to limit runs on (only applies to schedule events)
     required: false
 runs:
-  using: 'node12'
+  using: 'node16'
   main: 'dist/index.js'
 branding:
   icon: 'play'
