@@ -1,6 +1,8 @@
 # cancel-previous-runs 
 This action cancels previous runs for one or more branches/prs associated with a workflow, effectively limiting the resource consumption of the workflow to one per branch.
 
+#### NOTE: This action was created before [concurrency groups](https://docs.github.com/en/actions/using-jobs/using-concurrency). In most cases you want to define a cancel-in-progress group instead of using this action.
+
 <p><a href="https://github.com/actions/typescript-action/actions"><img alt="typescript-action status" src="https://github.com/actions/typescript-action/workflows/build-test/badge.svg"></a>
 
 ## Usage
