@@ -1,5 +1,5 @@
 import * as github from '@actions/github'
-import { GitHub } from '@actions/github/lib/utils'
+import {GitHub} from '@actions/github/lib/utils'
 import * as core from '@actions/core'
 import * as otypes from '@octokit/types'
 import * as treemap from 'jstreemap'
@@ -18,14 +18,12 @@ function createRunsQuery(
       ? {
           owner,
           repo,
-          // eslint-disable-next-line @typescript-eslint/camelcase
           workflow_id: workflowId,
           status
         }
       : {
           owner,
           repo,
-          // eslint-disable-next-line @typescript-eslint/camelcase
           workflow_id: workflowId,
           status,
           branch,
@@ -52,7 +50,6 @@ async function cancelDuplicates(
     const reply = await octokit.rest.actions.getWorkflowRun({
       owner,
       repo,
-      // eslint-disable-next-line @typescript-eslint/camelcase
       run_id: Number.parseInt(selfRunId)
     })
 
@@ -66,7 +63,6 @@ async function cancelDuplicates(
 
   core.info(`Workflow ID is: ${resolvedId}`)
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sorted = new treemap.TreeMap<number, any>()
   for (const status of ['queued', 'in_progress']) {
     const listRuns = createRunsQuery(
@@ -83,7 +79,9 @@ async function cancelDuplicates(
       // different endpoint URL which trips up the resulting representation
       // In that case, fallback to the actual REST 'workflow_runs' property
       const elements =
-        item.data.length === undefined ? (item.data as any).workflow_runs : item.data
+        item.data.length === undefined
+          ? (item.data as any).workflow_runs
+          : item.data
 
       for (const element of elements) {
         sorted.set(element.run_number, element)
@@ -185,13 +183,12 @@ async function run(): Promise<void> {
       branch,
       eventName
     )
-  } catch (error:any) {
+  } catch (error: any) {
     core.setFailed(error.message)
   }
 }
 
 async function cancelRun(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   octokit: any,
   owner: string,
   repo: string,
@@ -202,11 +199,10 @@ async function cancelRun(
     reply = await octokit.actions.cancelWorkflowRun({
       owner,
       repo,
-      // eslint-disable-next-line @typescript-eslint/camelcase
       run_id: id
     })
     core.info(`Previous run (id ${id}) cancelled, status = ${reply.status}`)
-  } catch (error:any) {
+  } catch (error: any) {
     core.info(
       `[warn] Could not cancel run (id ${id}): [${error.status}] ${error.message}`
     )
