@@ -27,7 +27,7 @@ cancel-runs:
   if: github.repository == 'foo-org/my-repo'
   runs-on: ubuntu-latest
     steps:
-      - uses: n1hility/cancel-previous-runs@v2
+      - uses: n1hility/cancel-previous-runs@v3
         with: 
           token: ${{ secrets.GITHUB_TOKEN }}
           workflow: my-heavy-workflow.yml
@@ -41,7 +41,7 @@ cancel-runs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v1
-    - uses: n1hility/cancel-previous-runs@v2
+    - uses: n1hility/cancel-previous-runs@v3
       with: 
         token: ${{ secrets.GITHUB_TOKEN }}
 ```
