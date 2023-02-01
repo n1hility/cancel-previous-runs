@@ -189,14 +189,14 @@ async function run(): Promise<void> {
 }
 
 async function cancelRun(
-  octokit: any,
+  octokit: InstanceType<typeof GitHub>,
   owner: string,
   repo: string,
-  id: string
+  id: number
 ): Promise<void> {
   let reply
   try {
-    reply = await octokit.actions.cancelWorkflowRun({
+    reply = await octokit.rest.actions.cancelWorkflowRun({
       owner,
       repo,
       run_id: id
